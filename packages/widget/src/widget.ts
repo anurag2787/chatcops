@@ -145,6 +145,8 @@ export class Widget {
     if (!this.isInline) {
       this.fab = new FAB(this.shadow, {
         position,
+        openLabel: this.locale.openChat,
+        closeLabel: this.locale.closeButton,
         onClick: () => this.toggle(),
       });
     }
@@ -154,12 +156,14 @@ export class Widget {
       inline: this.isInline,
       preChatEnabled: this.config.preChatForm?.enabled ?? false,
       branding: {
-        name: this.config.branding?.name ?? 'AI Assistant',
+        name: this.config.branding?.name ?? this.locale.defaultName,
         avatar: this.config.branding?.avatar,
-        subtitle: this.config.branding?.subtitle ?? 'Online',
+        subtitle: this.config.branding?.subtitle ?? this.locale.defaultSubtitle,
       },
       placeholder: this.config.placeholder ?? this.locale.inputPlaceholder,
       footerText: this.locale.poweredBy,
+      closeLabel: this.locale.closeButton,
+      sendLabel: this.locale.sendButton,
       messageActions: {
         onRetry: (messageId) => {
           void this.handleRetry(messageId);
@@ -206,6 +210,7 @@ export class Widget {
         delay: this.config.welcomeBubble.delay,
         showOnce: this.config.welcomeBubble.showOnce ?? true,
         position,
+        dismissLabel: this.locale.dismissBubble,
         onClick: () => this.open(),
       });
     }
@@ -327,7 +332,7 @@ export class Widget {
     if (this.messages.length === 0) {
       const userName = this.userData?.name;
       const welcomeText = userName
-        ? `Hi ${userName}! ${this.config.welcomeMessage ?? this.locale.welcomeMessage}`
+        ? this.locale.greetingWithName.replace('{name}', userName)
         : (this.config.welcomeMessage ?? this.locale.welcomeMessage);
       const welcomeMsg: MessageData = {
         id: 'welcome',

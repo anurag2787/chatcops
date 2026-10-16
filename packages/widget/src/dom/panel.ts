@@ -15,6 +15,8 @@ export interface PanelOptions {
   };
   placeholder: string;
   footerText: string;
+  closeLabel: string;
+  sendLabel: string;
   messageActions?: MessageActions;
   onSend: (text: string) => void;
   onClose: () => void;
@@ -63,7 +65,7 @@ export class Panel {
     if (!options.inline) {
       const closeBtn = document.createElement('button');
       closeBtn.className = 'cc-header-close';
-      closeBtn.setAttribute('aria-label', 'Close chat');
+      closeBtn.setAttribute('aria-label', options.closeLabel);
       closeBtn.innerHTML = CLOSE_ICON;
       closeBtn.addEventListener('click', options.onClose);
       header.appendChild(closeBtn);
@@ -83,6 +85,7 @@ export class Panel {
     // Input
     this.input = new Input(this.el, {
       placeholder: options.placeholder,
+      sendLabel: options.sendLabel,
       onSend: options.onSend,
     });
 

@@ -3,6 +3,7 @@ export interface BubbleOptions {
   delay?: number;
   showOnce?: boolean;
   position: 'bottom-right' | 'bottom-left';
+  dismissLabel: string;
   onClick: () => void;
 }
 
@@ -22,7 +23,9 @@ export class WelcomeBubble {
     this.el.textContent = options.text;
 
     const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
     closeBtn.className = 'cc-bubble-close';
+    closeBtn.setAttribute('aria-label', options.dismissLabel);
     closeBtn.innerHTML = '&times;';
     closeBtn.addEventListener('click', (e) => {
       e.stopPropagation();

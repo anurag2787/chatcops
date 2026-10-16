@@ -78,6 +78,25 @@ describe('Widget', () => {
     }
   );
 
+  it('strings: { closeButton } overrides the close aria-label on both the panel header and the FAB', () => {
+    const widget = new Widget({
+      apiUrl: 'https://api.test/chat',
+      strings: { closeButton: 'Cerrar' },
+    });
+    widget.init();
+
+    const root = getInternals(widget).shadow;
+    const headerClose = root.querySelector('.cc-header-close') as HTMLButtonElement;
+    const launcher = root.querySelector('.cc-fab') as HTMLButtonElement;
+
+    expect(headerClose.getAttribute('aria-label')).toBe('Cerrar');
+
+    launcher.click();
+    expect(launcher.getAttribute('aria-label')).toBe('Cerrar');
+
+    widget.destroy();
+  });
+
   it('fires the leadCaptured callback and event when the stream includes lead data', async () => {
     const onLeadCaptured = vi.fn();
     const widget = new Widget({

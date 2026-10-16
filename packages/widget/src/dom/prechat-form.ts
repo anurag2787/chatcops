@@ -94,7 +94,8 @@ export class PreChatForm {
       select.className = 'cc-prechat-select';
       const defaultOpt = document.createElement('option');
       defaultOpt.value = '';
-      defaultOpt.textContent = field.placeholder ?? `Select ${field.label.toLowerCase()}...`;
+      defaultOpt.textContent = field.placeholder
+        ?? this.options.locale.selectPlaceholder.replace('{label}', field.label.toLowerCase());
       defaultOpt.disabled = true;
       defaultOpt.selected = true;
       select.appendChild(defaultOpt);

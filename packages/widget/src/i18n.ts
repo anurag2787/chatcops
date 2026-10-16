@@ -3,6 +3,12 @@ export interface WidgetLocaleStrings {
   inputPlaceholder: string;
   sendButton: string;
   closeButton: string;
+  openChat: string;
+  defaultName: string;
+  defaultSubtitle: string;
+  greetingWithName: string;
+  selectPlaceholder: string;
+  dismissBubble: string;
   errorGeneric: string;
   errorNetwork: string;
   errorRateLimit: string;
@@ -24,6 +30,12 @@ const en: WidgetLocaleStrings = {
   inputPlaceholder: 'Type a message...',
   sendButton: 'Send',
   closeButton: 'Close',
+  openChat: 'Open chat',
+  defaultName: 'AI Assistant',
+  defaultSubtitle: 'Online',
+  greetingWithName: 'Hi {name}! How can I help you today?',
+  selectPlaceholder: 'Select {label}...',
+  dismissBubble: 'Dismiss',
   errorGeneric: 'Something went wrong. Please try again.',
   errorNetwork: 'Connection error. Please check your network.',
   errorRateLimit: 'Too many messages. Please wait a moment.',

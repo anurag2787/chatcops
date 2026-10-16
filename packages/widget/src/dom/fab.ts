@@ -3,6 +3,8 @@ const CLOSE_ICON = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
 
 export interface FABOptions {
   position: 'bottom-right' | 'bottom-left';
+  openLabel: string;
+  closeLabel: string;
   onClick: () => void;
 }
 
@@ -10,11 +12,16 @@ export class FAB {
   private el: HTMLButtonElement;
   private badge: HTMLDivElement;
   private isOpen = false;
+  private openLabel: string;
+  private closeLabel: string;
 
   constructor(root: ShadowRoot, options: FABOptions) {
+    this.openLabel = options.openLabel;
+    this.closeLabel = options.closeLabel;
+
     this.el = document.createElement('button');
     this.el.className = 'cc-fab cc-pulse';
-    this.el.setAttribute('aria-label', 'Open chat');
+    this.el.setAttribute('aria-label', this.openLabel);
     if (options.position === 'bottom-left') {
       this.el.classList.add('cc-left');
     }
@@ -37,7 +44,7 @@ export class FAB {
     this.el.innerHTML = open ? CLOSE_ICON : CHAT_ICON;
     if (!open) this.el.appendChild(this.badge);
     this.el.classList.toggle('cc-open', open);
-    this.el.setAttribute('aria-label', open ? 'Close chat' : 'Open chat');
+    this.el.setAttribute('aria-label', open ? this.closeLabel : this.openLabel);
   }
 
   showBadge(): void {

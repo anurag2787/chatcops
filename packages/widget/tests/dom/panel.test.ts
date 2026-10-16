@@ -17,6 +17,8 @@ describe('Panel', () => {
       branding: { name: 'Test Bot', subtitle: 'Online' },
       placeholder: 'Type here...',
       footerText: 'Powered by ChatCops',
+      closeLabel: 'Close',
+      sendLabel: 'Send',
       onSend: vi.fn(),
       onClose: vi.fn(),
       ...overrides,
