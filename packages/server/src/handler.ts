@@ -122,6 +122,7 @@ export function createChatHandler(config: ChatCopsServerConfig) {
     // Stream response
     let fullResponse = '';
     const pendingEvents: string[] = [];
+    const pendingWebhooks = new Set<Promise<void>>();
     try {
       for await (const chunk of provider.chat({
         messages,
@@ -146,10 +147,18 @@ export function createChatHandler(config: ChatCopsServerConfig) {
               leadData: result.data,
             }));
             if (webhooks) {
-              await webhooks.dispatch('lead:captured', {
-                lead: result.data,
-                conversationId: req.conversationId,
-              });
+              const delivery = webhooks
+                .dispatch('lead:captured', {
+                  lead: result.data,
+                  conversationId: req.conversationId,
+                })
+                .catch((err) => {
+                  console.error('[chatcops] Webhook delivery failed:', err);
+                })
+                .finally(() => {
+                  pendingWebhooks.delete(delivery);
+                });
+              pendingWebhooks.add(delivery);
             }
           }
 
@@ -168,6 +177,7 @@ export function createChatHandler(config: ChatCopsServerConfig) {
       }
     } catch (err) {
       console.error('[chatcops] Provider error:', err);
+      await awaitPendingWebhooks(pendingWebhooks);
       yield JSON.stringify({ error: 'provider_error' });
       return;
     }
@@ -184,6 +194,8 @@ export function createChatHandler(config: ChatCopsServerConfig) {
       analytics?.track('message:received', { conversationId: req.conversationId });
     }
 
+    await awaitPendingWebhooks(pendingWebhooks);
+
     yield JSON.stringify({ done: true });
   }
 
@@ -196,4 +208,11 @@ export function createChatHandler(config: ChatCopsServerConfig) {
     getAnalytics: () => analytics?.getStats() ?? null,
     cleanup,
   };
+}
+
+async function awaitPendingWebhooks(pendingWebhooks: Set<Promise<void>>): Promise<void> {
+  if (pendingWebhooks.size > 0) {
+    await Promise.allSettled(Array.from(pendingWebhooks));
+    pendingWebhooks.clear();
+  }
 }
