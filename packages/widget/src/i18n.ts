@@ -26,14 +26,14 @@ export interface WidgetLocaleStrings {
 }
 
 const en: WidgetLocaleStrings = {
-  welcomeMessage: 'Hi! How can I help you today?',
+  welcomeMessage: 'How can I help you today?',
   inputPlaceholder: 'Type a message...',
   sendButton: 'Send',
   closeButton: 'Close',
   openChat: 'Open chat',
   defaultName: 'AI Assistant',
   defaultSubtitle: 'Online',
-  greetingWithName: 'Hi {name}! How can I help you today?',
+  greetingWithName: 'Hi {name}!',
   selectPlaceholder: 'Select {label}...',
   dismissBubble: 'Dismiss',
   errorGeneric: 'Something went wrong. Please try again.',

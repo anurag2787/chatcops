@@ -331,8 +331,9 @@ export class Widget {
   private showChatView(): void {
     if (this.messages.length === 0) {
       const userName = this.userData?.name;
+      const greeting = this.locale.greetingWithName.replace('{name}', () => userName!);
       const welcomeText = userName
-        ? this.locale.greetingWithName.replace('{name}', userName)
+        ? `${greeting} ${this.config.welcomeMessage ?? this.locale.welcomeMessage}`
         : (this.config.welcomeMessage ?? this.locale.welcomeMessage);
       const welcomeMsg: MessageData = {
         id: 'welcome',
