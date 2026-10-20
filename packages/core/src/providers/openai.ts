@@ -12,6 +12,7 @@ import {
 
 const DEFAULT_MODEL = 'gpt-5-mini';
 const DEFAULT_EFFORT: ProviderEffort = 'low';
+
 type FunctionToolCall = OpenAI.Chat.ChatCompletionMessageFunctionToolCall;
 
 function createToolCallId() {
