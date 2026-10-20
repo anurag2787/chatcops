@@ -21,7 +21,7 @@ const handler = chatcopsMiddleware({
   provider: {
     type: 'claude',                      // 'claude' | 'openai' | 'gemini'
     apiKey: process.env.ANTHROPIC_API_KEY!,
-    model: 'claude-haiku-4-5-20251001',  // Optional, each provider has defaults
+    model: 'claude-haiku-5-5',  // Optional, each provider has defaults
   },
 
   // Required: System prompt
@@ -36,6 +36,13 @@ const handler = chatcopsMiddleware({
 
   // Optional: Tool execution timeout in ms (default: 30000)
   toolTimeoutMs: 30_000,
+
+  // Optional: Most tokens in one reply (default: 1024)
+  maxTokens: 1024,
+
+  // Optional: Sampling temperature (default: the provider's own).
+  // The allowed range depends on the provider.
+  temperature: 0.7,
 
   // Optional: Knowledge base
   knowledge: [
@@ -62,14 +69,11 @@ const handler = chatcopsMiddleware({
   // Optional: Analytics
   analytics: true,
 
+  // Optional: Conversation store (defaults to in-memory)
+  conversationStore: new RedisConversationStore(redisClient),
+
   // Optional: CORS origin
   cors: '*',
-
-  // Optional: i18n
-  i18n: {
-    defaultLocale: 'en',
-    locales: { /* custom strings */ },
-  },
 });
 ```
 
@@ -85,6 +89,8 @@ interface ChatCopsServerConfig {
   systemPrompt: string;
   tools?: ChatTool[];
   toolTimeoutMs?: number;
+  maxTokens?: number;
+  temperature?: number;
   knowledge?: KnowledgeSource[];
   rateLimit?: {
     maxRequests: number;
@@ -92,12 +98,86 @@ interface ChatCopsServerConfig {
   };
   webhooks?: WebhookConfig[];
   analytics?: boolean;
+  conversationStore?: ConversationStore;
   cors?: string;
+  /** @deprecated Ignored by the server. Use the widget's `strings` option. */
   i18n?: {
     defaultLocale: string;
     locales: Record<string, LocaleStrings>;
   };
 }
+```
+
+## Custom Conversation Store
+
+By default, the server retains conversation history in memory with `MemoryStore`. For multi-instance deployments or persistent chat history across restarts, pass a custom `conversationStore` that implements the `ConversationStore` interface from `@chatcops/core`:
+
+```typescript
+import type { ConversationStore, Conversation } from '@chatcops/core';
+
+class RedisConversationStore implements ConversationStore {
+  constructor(private redis: RedisClient) {}
+
+  async get(id: string): Promise<Conversation | null> {
+    const raw = await this.redis.get(`chat:${id}`);
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  async save(conversation: Conversation): Promise<void> {
+    await this.redis.set(`chat:${conversation.id}`, JSON.stringify(conversation));
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.redis.del(`chat:${id}`);
+  }
+}
+```
+
+## Webhooks
+
+Each webhook gets a POST with a JSON body for every event it subscribes to:
+
+```json
+{
+  "id": "evt_6f1c…",
+  "type": "lead:captured",
+  "created": 1792411200000,
+  "data": { "lead": { "name": "Priya", "email": "priya@example.com" }, "conversationId": "c_123" },
+  "event": "lead:captured",
+  "timestamp": 1792411200000
+}
+```
+
+`id` is the same on every retry, so use it to ignore duplicates; it's also in the `X-ChatCops-Event-Id` header. `event` and `timestamp` repeat `type` and `created` for receivers written for older versions.
+
+**Retries.** A delivery is tried up to 3 times. Network errors, 429 and 5xx responses are retried (a 429's `Retry-After` is honored, up to 10 seconds); other 4xx responses are final, and redirects aren't followed. A delivery that fails for good is logged with the event type, id and the receiver's origin, never the body.
+
+**Verifying the signature.** With a `secret`, each request has an `X-ChatCops-Signature: t=<unix seconds>,v1=<hex>` header, an HMAC-SHA256 of `<t>.<raw body>`. Verify it against the raw body, before parsing it:
+
+```typescript
+import express from 'express';
+import { verifyWebhook } from '@chatcops/server';
+
+app.post('/hooks/chatcops', express.text({ type: 'application/json' }), async (req, res) => {
+  const valid = await verifyWebhook({
+    body: req.body, // the raw string, not parsed JSON
+    signature: req.get('X-ChatCops-Signature'),
+    secret: process.env.WEBHOOK_SECRET!,
+  });
+  if (!valid) return res.status(400).end();
+
+  const event = JSON.parse(req.body);
+  // ...
+  res.status(200).end();
+});
+```
+
+`verifyWebhook` also rejects signatures older than 5 minutes (`toleranceSec` changes that).
+
+**Allowed URLs.** Webhook URLs must use https, and hosts on loopback, private or link-local networks (`localhost`, `10.x`, `192.168.x`, `169.254.169.254` and so on) are refused when the server starts. For a receiver on your own machine during development, set `allowPrivateNetwork: true` on that webhook:
+
+```typescript
+webhooks: [{ url: 'http://localhost:4000/hooks', events: ['lead:captured'], allowPrivateNetwork: true }],
 ```
 
 ## Request Schema

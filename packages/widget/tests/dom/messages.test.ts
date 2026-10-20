@@ -45,6 +45,31 @@ describe('Messages', () => {
     expect(parent.querySelector('.cc-typing')).toBeNull();
   });
 
+  it('announces new messages politely', () => {
+    const container = parent.querySelector('.cc-messages')!;
+    expect(container.getAttribute('role')).toBe('log');
+    expect(container.getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('gives the typing indicator text and hides the dots', () => {
+    messages = new Messages(parent, { typingLabel: 'Escribiendo...' });
+    messages.showTyping();
+    const typing = parent.querySelectorAll('.cc-typing')[0]!;
+    expect(typing.querySelector('.cc-sr-only')?.textContent).toBe('Escribiendo...');
+    typing.querySelectorAll('.cc-typing-dot').forEach((dot) => {
+      expect(dot.getAttribute('aria-hidden')).toBe('true');
+    });
+  });
+
+  it('marks a streaming message busy until it completes', () => {
+    messages.addMessage({ id: '5', role: 'assistant', content: 'Hel', status: 'streaming' });
+    const el = parent.querySelector('[data-id="5"]')!;
+    expect(el.getAttribute('aria-busy')).toBe('true');
+
+    messages.updateMessage({ id: '5', role: 'assistant', content: 'Hello', status: 'complete' });
+    expect(el.hasAttribute('aria-busy')).toBe(false);
+  });
+
   it('removes typing indicator when adding a message', () => {
     messages.showTyping();
     messages.addMessage({ id: '4', role: 'assistant', content: 'Done' });
@@ -104,6 +129,19 @@ describe('Messages', () => {
     messages.removeMessage('remove-1');
 
     expect(parent.querySelector('[data-id="remove-1"]')).toBeNull();
+  });
+
+  it('updates and removes a message whose id has a quote and a backslash', () => {
+    const id = 'msg-"1"\\x';
+    messages.addMessage({ id, role: 'assistant', content: 'Hello' });
+
+    messages.updateMessage({ id, role: 'assistant', content: 'Hello world' });
+    const msg = parent.querySelector('.cc-message-assistant') as HTMLDivElement;
+    expect(msg.dataset.id).toBe(id);
+    expect(msg.textContent).toContain('Hello world');
+
+    messages.removeMessage(id);
+    expect(parent.querySelector('.cc-message-assistant')).toBeNull();
   });
 
   it('shows a regenerate button on the selected assistant message', () => {

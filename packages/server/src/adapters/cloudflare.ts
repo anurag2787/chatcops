@@ -5,7 +5,23 @@ export function chatcopsCloudflareHandler(config: ChatCopsServerConfig) {
   const { handleChat } = createChatHandler(config);
   const corsOrigin = config.cors ?? '*';
 
-  return async function handler(request: Request): Promise<Response> {
+  function errorResponse(status: number, error: string): Response {
+    return new Response(JSON.stringify({ error }), {
+      status,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': corsOrigin,
+      },
+    });
+  }
+
+  // Workers call fetch(request, env, ctx); ctx.waitUntil keeps lead webhooks
+  // running after a visitor disconnects.
+  return async function handler(
+    request: Request,
+    _env?: unknown,
+    ctx?: { waitUntil?(promise: Promise<unknown>): void }
+  ): Promise<Response> {
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -20,10 +36,7 @@ export function chatcopsCloudflareHandler(config: ChatCopsServerConfig) {
     }
 
     if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        status: 405,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return errorResponse(405, 'Method not allowed');
     }
 
     const clientIp = request.headers.get('cf-connecting-ip') ?? 'unknown';
@@ -31,28 +44,46 @@ export function chatcopsCloudflareHandler(config: ChatCopsServerConfig) {
     try {
       body = await request.json();
     } catch {
-      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return errorResponse(400, 'Invalid JSON body');
     }
 
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
 
-    (async () => {
+    // When the visitor disconnects the runtime cancels the response, which errors
+    // the writer right away; abort then, without waiting for the next write.
+    const abort = new AbortController();
+    writer.closed.catch(() => abort.abort());
+    const send = async (text: string): Promise<boolean> => {
+      if (abort.signal.aborted) return false;
       try {
-        for await (const chunk of handleChat(body, clientIp)) {
-          await writer.write(encoder.encode(`data: ${chunk}\n\n`));
-        }
-        await writer.write(encoder.encode('data: [DONE]\n\n'));
+        await writer.write(encoder.encode(text));
+        return true;
       } catch {
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ error: 'internal_error' })}\n\n`));
+        abort.abort();
+        return false;
+      }
+    };
+
+    const pump = (async () => {
+      try {
+        for await (const chunk of handleChat(body, clientIp, { signal: abort.signal })) {
+          if (!(await send(`data: ${chunk}\n\n`))) break;
+        }
+        await send('data: [DONE]\n\n');
+      } catch (err) {
+        if (!abort.signal.aborted) console.error('[chatcops] Unhandled error while handling chat:', err);
+        await send(`data: ${JSON.stringify({ error: 'internal_error' })}\n\n`);
       } finally {
-        await writer.close();
+        if (abort.signal.aborted) {
+          await writer.abort().catch(() => {});
+        } else {
+          await writer.close().catch(() => {});
+        }
       }
     })();
+    ctx?.waitUntil?.(pump);
 
     return new Response(readable, {
       headers: {

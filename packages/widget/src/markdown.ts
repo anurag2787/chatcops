@@ -16,6 +16,7 @@ function isSafeHref(href: string): boolean {
   // Browsers drop tabs and newlines anywhere in a URL and trim leading
   // control characters and spaces, so normalize the same way before
   // reading the scheme. URLs without a scheme are relative and safe.
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strip control characters from url
   const normalized = href.replace(/[\t\n\r]/g, '').replace(/^[\u0000-\u0020]+/, '');
   const scheme = /^([^:/?#]+):/.exec(normalized);
   return !scheme || SAFE_SCHEMES.has(scheme[1].toLowerCase());
@@ -48,11 +49,17 @@ export function renderMarkdown(input: string): string {
   // Inline code
   html = html.replace(/`([^`]+)`/g, (_match, code: string) => stashHtml(`<code>${code}</code>`));
 
+  // Headings
+  html = html.replace(/^(#{1,6}) (.+)$/gm, (_match, hashes: string, text: string) => {
+    const level = hashes.length;
+    return `<h${level}>${text}</h${level}>`;
+  });
+
   // Bold
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
   // Italic
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/\*(\S(?:.*?\S)??)\*/g, '<em>$1</em>');
 
   // Links (supports one level of nested parentheses in URLs). Links with an
   // unsafe scheme such as javascript: or data: are shown as plain text.
@@ -66,7 +73,7 @@ export function renderMarkdown(input: string): string {
   // items can be grouped into a <ul>/<ol>, and a `-` list followed by a
   // `1.` list stays two separate lists. Intra-list newlines are removed
   // here so the line-break step below does not insert <br> between items.
-  html = html.replace(/^- (.+)$/gm, '<li data-md="ul">$1</li>');
+  html = html.replace(/^[-*+] (.+)$/gm, '<li data-md="ul">$1</li>');
   html = html.replace(/^\d+\. (.+)$/gm, '<li data-md="ol">$1</li>');
   html = html.replace(
     /(?:<li data-md="ul">.*?<\/li>\n?)+|(?:<li data-md="ol">.*?<\/li>\n?)+/g,
@@ -77,6 +84,9 @@ export function renderMarkdown(input: string): string {
       return `<${tag}>${items}</${tag}>`;
     }
   );
+
+  // A heading is a block, so no <br> right after one.
+  html = html.replace(/(<\/h[1-6]>)\n+/g, '$1');
 
   // Line breaks (double newline = paragraph break)
   html = html.replace(/\n\n/g, '<br><br>');

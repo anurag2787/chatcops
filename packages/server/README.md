@@ -80,7 +80,7 @@ const handler = createChatHandler({
   provider: {
     type: 'claude',          // 'claude' | 'openai' | 'gemini'
     apiKey: 'sk-...',
-    model: 'claude-haiku-4-5-20251001',
+    model: 'claude-haiku-5-5',
   },
 
   // System prompt (required)
@@ -110,6 +110,9 @@ const handler = createChatHandler({
 
   // Analytics (optional)
   analytics: true,
+
+  // Conversation storage (optional, default: in-memory)
+  conversationStore: new RedisConversationStore(redisClient),
 
   // CORS origin (optional, default: '*')
   cors: '*',
@@ -150,7 +153,7 @@ const result = limiter.check('127.0.0.1');
 
 ## Webhooks
 
-HMAC-SHA256 signed, with exponential backoff retries (up to 3 attempts).
+HMAC-SHA256 signed, with retries (up to 3 attempts).
 
 ```typescript
 import { WebhookDispatcher } from '@chatcops/server';
@@ -162,7 +165,70 @@ const dispatcher = new WebhookDispatcher([
 await dispatcher.dispatch('lead:captured', { email: 'user@example.com' });
 ```
 
-Signature sent via `X-ChatCops-Signature` header.
+Each delivery carries `X-ChatCops-Signature: t=<seconds>,v1=<hmac>`, signed over the raw body. Check it on the receiving side with `verifyWebhook`:
+
+```typescript
+import { verifyWebhook } from '@chatcops/server';
+
+const valid = await verifyWebhook({ body: rawBody, signature: request.headers.get('X-ChatCops-Signature'), secret: 'my-secret' });
+```
+
+The body is `{ id, type, created, data }`; `id` stays the same across retries. 429 and 5xx responses are retried, redirects aren't followed, and URLs must be https on a public host unless the webhook sets `allowPrivateNetwork: true`. See the server setup docs for the full format.
+
+## Custom Conversation Store
+
+By default, conversations are held in memory (`MemoryStore`). You can persist conversations across server restarts or share them across instances by implementing `ConversationStore` from `@chatcops/core`:
+
+```typescript
+import type { ConversationStore, Conversation } from '@chatcops/core';
+
+class RedisConversationStore implements ConversationStore {
+  constructor(private redis: RedisClient) {}
+
+  async get(id: string): Promise<Conversation | null> {
+    const data = await this.redis.get(`conversation:${id}`);
+    return data ? JSON.parse(data) : null;
+  }
+
+  async save(conversation: Conversation): Promise<void> {
+    await this.redis.set(`conversation:${conversation.id}`, JSON.stringify(conversation));
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.redis.del(`conversation:${id}`);
+  }
+}
+```
+
+Pass the store when initializing the handler:
+
+```typescript
+const handler = createChatHandler({
+  provider: { type: 'claude', apiKey: process.env.ANTHROPIC_API_KEY },
+  systemPrompt: 'You are a helpful assistant.',
+  conversationStore: new RedisConversationStore(redisClient),
+});
+```
+
+## Custom integrations
+
+`createChatHandler(config)` returns `handleChat(body, clientIp, options)`, an async generator of SSE `data` payloads. The built-in adapters use it; call it directly for other runtimes. Pass `options.signal` and abort it when the visitor disconnects: the provider request is cancelled, nothing more is yielded, and the partial reply isn't saved.
+
+```typescript
+const abort = new AbortController();
+const stream = new ReadableStream({
+  async start(controller) {
+    for await (const chunk of handler.handleChat(body, clientIp, { signal: abort.signal })) {
+      if (abort.signal.aborted) break;
+      controller.enqueue(new TextEncoder().encode(`data: ${chunk}\n\n`));
+    }
+    if (!abort.signal.aborted) controller.close();
+  },
+  cancel() {
+    abort.abort(); // the runtime cancels the response when the client goes away
+  },
+});
+```
 
 ## License
 
