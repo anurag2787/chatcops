@@ -5,6 +5,16 @@ export function chatcopsVercelHandler(config: ChatCopsServerConfig) {
   const { handleChat } = createChatHandler(config);
   const corsOrigin = config.cors ?? '*';
 
+  function errorResponse(status: number, error: string): Response {
+    return new Response(JSON.stringify({ error }), {
+      status,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': corsOrigin,
+      },
+    });
+  }
+
   return async function handler(req: Request): Promise<Response> {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
@@ -20,10 +30,7 @@ export function chatcopsVercelHandler(config: ChatCopsServerConfig) {
     }
 
     if (req.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        status: 405,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return errorResponse(405, 'Method not allowed');
     }
 
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
@@ -31,25 +38,32 @@ export function chatcopsVercelHandler(config: ChatCopsServerConfig) {
     try {
       body = await req.json();
     } catch {
-      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return errorResponse(400, 'Invalid JSON body');
     }
 
     const encoder = new TextEncoder();
+    // The runtime cancels the response stream when the visitor disconnects.
+    const abort = new AbortController();
     const stream = new ReadableStream({
       async start(controller) {
+        const send = (text: string) => {
+          if (!abort.signal.aborted) controller.enqueue(encoder.encode(text));
+        };
         try {
-          for await (const chunk of handleChat(body, clientIp)) {
-            controller.enqueue(encoder.encode(`data: ${chunk}\n\n`));
+          for await (const chunk of handleChat(body, clientIp, { signal: abort.signal })) {
+            if (abort.signal.aborted) break;
+            send(`data: ${chunk}\n\n`);
           }
-          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        } catch {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'internal_error' })}\n\n`));
+          send('data: [DONE]\n\n');
+        } catch (err) {
+          if (!abort.signal.aborted) console.error('[chatcops] Unhandled error while handling chat:', err);
+          send(`data: ${JSON.stringify({ error: 'internal_error' })}\n\n`);
         } finally {
-          controller.close();
+          if (!abort.signal.aborted) controller.close();
         }
+      },
+      cancel() {
+        abort.abort();
       },
     });
 

@@ -17,6 +17,8 @@ describe('Panel', () => {
       branding: { name: 'Test Bot', subtitle: 'Online' },
       placeholder: 'Type here...',
       footerText: 'Powered by ChatCops',
+      closeLabel: 'Close',
+      sendLabel: 'Send',
       onSend: vi.fn(),
       onClose: vi.fn(),
       ...overrides,
@@ -58,6 +60,47 @@ describe('Panel', () => {
     const closeBtn = root.querySelector('.cc-header-close') as HTMLButtonElement;
     closeBtn.click();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('is a dialog that is inert and hidden from screen readers while closed', () => {
+    const panel = createPanel();
+    const el = root.querySelector('.cc-panel') as HTMLElement;
+    expect(el.id).toBe('cc-panel');
+    expect(el.getAttribute('role')).toBe('dialog');
+    expect(el.getAttribute('aria-label')).toBe('Test Bot');
+    expect(el.hasAttribute('inert')).toBe(true);
+    expect(el.getAttribute('aria-hidden')).toBe('true');
+
+    panel.show();
+    expect(el.hasAttribute('inert')).toBe(false);
+    expect(el.hasAttribute('aria-hidden')).toBe(false);
+
+    panel.hide();
+    expect(el.hasAttribute('inert')).toBe(true);
+    expect(el.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('calls onClose when Escape is pressed inside the panel', () => {
+    const onClose = vi.fn();
+    const panel = createPanel({ onClose });
+    panel.show();
+    const textarea = root.querySelector('.cc-panel textarea') as HTMLElement;
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the inline panel as it was', () => {
+    const onClose = vi.fn();
+    const panel = createPanel({ inline: true, onClose });
+    const el = root.querySelector('.cc-panel') as HTMLElement;
+    expect(el.id).toBe('');
+    expect(el.hasAttribute('role')).toBe(false);
+    expect(el.hasAttribute('inert')).toBe(false);
+    expect(el.hasAttribute('aria-hidden')).toBe(false);
+
+    panel.show();
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('renders avatar placeholder when no avatar URL', () => {

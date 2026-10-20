@@ -4,6 +4,7 @@ import { Panel } from './dom/panel.js';
 import { WelcomeBubble } from './dom/bubble.js';
 import { ChatClient } from './api/client.js';
 import { ConversationStorage } from './storage.js';
+import { claimNamespace, type ClaimedNamespace } from './namespace.js';
 import { applyTheme } from './theme.js';
 import { getWidgetLocale, type WidgetLocaleStrings } from './i18n.js';
 import { PreChatForm } from './dom/prechat-form.js';
@@ -29,7 +30,15 @@ export interface PreChatFormConfig {
 
 export interface WidgetConfig {
   apiUrl: string;
+  /** Request/stream inactivity timeout in milliseconds. Defaults to 30000. */
+  timeout?: number;
   mode?: 'popup' | 'inline';
+  /**
+   * Names this widget's saved conversation. Set a different one on each widget
+   * when a page has more than one. Without it a single widget uses the default
+   * storage, and a second widget on the page is given its own automatically.
+   */
+  siteId?: string;
   container?: string | HTMLElement;
   theme?: {
     accent?: string;
@@ -66,14 +75,14 @@ export interface WidgetConfig {
   onPreChatSubmit?: (data: Record<string, string>) => void;
 }
 
-type WidgetEventType =
+export type WidgetEventType =
   | 'open'
   | 'close'
   | 'message'
   | 'error'
   | 'leadCaptured'
   | 'preChatSubmit';
-type WidgetEventHandler = (...args: unknown[]) => void;
+export type WidgetEventHandler = (...args: unknown[]) => void;
 type SendRequestOptions = {
   regenerate?: boolean;
   userMessageId?: string;
@@ -82,17 +91,18 @@ type SendRequestOptions = {
 export class Widget {
   private config: WidgetConfig;
   private shadow!: ShadowRoot;
+  private mounted = false;
   private fab?: FAB;
   private panel!: Panel;
   private bubble?: WelcomeBubble;
   private preChatFormEl?: PreChatForm;
   private client: ChatClient;
   private storage: ConversationStorage;
+  private namespace: ClaimedNamespace;
   private locale: WidgetLocaleStrings;
   private conversationId: string;
   private messages: MessageData[] = [];
   private userData?: Record<string, string>;
-  private userDataSent = false;
   private isStreaming = false;
   private destroyed = false;
   private abortController?: AbortController;
@@ -107,8 +117,13 @@ export class Widget {
 
   constructor(config: WidgetConfig) {
     this.config = config;
-    this.client = new ChatClient({ apiUrl: config.apiUrl });
-    this.storage = new ConversationStorage();
+    this.client = new ChatClient({ apiUrl: config.apiUrl, timeout: config.timeout });
+    this.namespace = claimNamespace(
+      config.siteId,
+      config.mode ?? 'popup',
+      () => !this.destroyed && (!this.mounted || this.shadow.host.isConnected)
+    );
+    this.storage = new ConversationStorage(this.namespace.siteId);
     this.locale = getWidgetLocale(config.locale ?? 'en', config.strings);
     this.conversationId = this.storage.getSessionId();
   }
@@ -134,6 +149,7 @@ export class Widget {
     } else {
       this.shadow = createShadowRoot();
     }
+    this.mounted = true;
 
     if (this.config.theme) {
       applyTheme(this.shadow, this.config.theme);
@@ -145,6 +161,8 @@ export class Widget {
     if (!this.isInline) {
       this.fab = new FAB(this.shadow, {
         position,
+        openLabel: this.locale.openChat,
+        closeLabel: this.locale.closeButton,
         onClick: () => this.toggle(),
       });
     }
@@ -154,12 +172,14 @@ export class Widget {
       inline: this.isInline,
       preChatEnabled: this.config.preChatForm?.enabled ?? false,
       branding: {
-        name: this.config.branding?.name ?? 'AI Assistant',
+        name: this.config.branding?.name ?? this.locale.defaultName,
         avatar: this.config.branding?.avatar,
-        subtitle: this.config.branding?.subtitle ?? 'Online',
+        subtitle: this.config.branding?.subtitle ?? this.locale.defaultSubtitle,
       },
       placeholder: this.config.placeholder ?? this.locale.inputPlaceholder,
       footerText: this.locale.poweredBy,
+      closeLabel: this.locale.closeButton,
+      sendLabel: this.locale.sendButton,
       messageActions: {
         onRetry: (messageId) => {
           void this.handleRetry(messageId);
@@ -169,6 +189,7 @@ export class Widget {
         },
         retryLabel: this.locale.retryButton,
         regenerateLabel: this.locale.regenerateButton,
+        typingLabel: this.locale.typingIndicator,
       },
       onSend: (text) => this.handleSend(text),
       onClose: () => this.close(),
@@ -183,6 +204,13 @@ export class Widget {
           this.messages.push(msg);
           this.panel.addMessage(msg);
         }
+      }
+    }
+
+    if (this.config.preChatForm?.enabled) {
+      const savedUserData = this.storage.getPreChatData(this.conversationId);
+      if (savedUserData) {
+        this.userData = savedUserData;
       }
     }
 
@@ -206,6 +234,7 @@ export class Widget {
         delay: this.config.welcomeBubble.delay,
         showOnce: this.config.welcomeBubble.showOnce ?? true,
         position,
+        dismissLabel: this.locale.dismissBubble,
         onClick: () => this.open(),
       });
     }
@@ -234,9 +263,11 @@ export class Widget {
   }
 
   close(): void {
+    const hadFocus = this.panel.containsFocus();
     this.panel.hide();
     if (!this.isInline) {
       this.fab?.setOpen(false);
+      if (hadFocus) this.fab?.focus();
     }
     this.config.onClose?.();
     this.emit('close');
@@ -259,16 +290,19 @@ export class Widget {
     this.bubble?.destroy();
     this.panel.destroy();
     this.fab?.destroy();
-    destroyShadowRoot(this.containerEl);
+    destroyShadowRoot(this.shadow);
+    this.namespace.release();
     this.eventHandlers.clear();
     this.messages = [];
+    this.userData = undefined;
   }
 
-  on(event: WidgetEventType, handler: WidgetEventHandler): void {
+  on(event: WidgetEventType, handler: WidgetEventHandler): () => void {
     if (!this.eventHandlers.has(event)) {
       this.eventHandlers.set(event, new Set());
     }
     this.eventHandlers.get(event)!.add(handler);
+    return () => this.off(event, handler);
   }
 
   off(event: WidgetEventType, handler: WidgetEventHandler): void {
@@ -277,15 +311,17 @@ export class Widget {
 
   private emit(event: WidgetEventType, ...args: unknown[]): void {
     if (this.destroyed) return;
-    this.eventHandlers.get(event)?.forEach((h) => h(...args));
+    this.eventHandlers.get(event)?.forEach((h) => {
+      h(...args);
+    });
   }
 
   private isPreChatCompleted(): boolean {
     return this.storage.isPreChatCompleted(this.conversationId);
   }
 
-  private setPreChatCompleted(): void {
-    this.storage.setPreChatCompleted(this.conversationId);
+  private setPreChatCompleted(data?: Record<string, string>): void {
+    this.storage.setPreChatCompleted(this.conversationId, data);
   }
 
   private showPreChatForm(): void {
@@ -304,8 +340,9 @@ export class Widget {
   }
 
   private handlePreChatSubmit(data: Record<string, string>): void {
+    if (!this.config.preChatForm?.enabled) return;
     this.userData = data;
-    this.setPreChatCompleted();
+    this.setPreChatCompleted(data);
 
     this.preChatFormEl?.destroy();
     this.preChatFormEl = undefined;
@@ -326,8 +363,9 @@ export class Widget {
   private showChatView(): void {
     if (this.messages.length === 0) {
       const userName = this.userData?.name;
+      const greeting = this.locale.greetingWithName.replace('{name}', () => userName!);
       const welcomeText = userName
-        ? `Hi ${userName}! ${this.config.welcomeMessage ?? this.locale.welcomeMessage}`
+        ? `${greeting} ${this.config.welcomeMessage ?? this.locale.welcomeMessage}`
         : (this.config.welcomeMessage ?? this.locale.welcomeMessage);
       const welcomeMsg: MessageData = {
         id: 'welcome',
@@ -425,7 +463,6 @@ export class Widget {
       status: 'streaming',
     };
 
-    const includeUserData = !!(this.userData && !this.userDataSent);
     let firstChunk = true;
     let requestCompleted = false;
     let hasError = false;
@@ -435,14 +472,13 @@ export class Widget {
 
     try {
       for await (const chunk of this.client.sendMessage(
-        this.createRequest(text, options, includeUserData),
+        this.createRequest(text, options),
         { signal: abortController.signal }
       )) {
         if (this.destroyed) break;
         if (chunk.error) {
           const errorType = this.resolveErrorType(chunk.error);
-          assistantMsg.content = this.getErrorMessage(errorType);
-          assistantMsg.status = 'error';
+          this.markFailed(assistantMsg, this.getErrorMessage(errorType));
           assistantMsg.errorType = errorType;
           hasError = true;
 
@@ -513,8 +549,7 @@ export class Widget {
     } catch (err) {
       if (this.destroyed) return;
 
-      assistantMsg.content = this.locale.errorGeneric;
-      assistantMsg.status = 'error';
+      this.markFailed(assistantMsg, this.locale.errorGeneric);
       assistantMsg.errorType = 'network';
 
       this.retryRequests.set(assistantMsg.id, {
@@ -523,7 +558,12 @@ export class Widget {
       });
 
       this.panel.messages.removeTyping();
-      this.panel.addMessage(assistantMsg);
+      // The bubble already exists if some of the reply streamed before the failure.
+      if (firstChunk) {
+        this.panel.addMessage(assistantMsg);
+      } else {
+        this.panel.messages.updateMessage(assistantMsg);
+      }
       this.messages.push(assistantMsg);
 
       const error = err instanceof Error ? err : new Error(String(err));
@@ -535,9 +575,6 @@ export class Widget {
       }
 
       if (!this.destroyed) {
-        if (includeUserData && requestCompleted) {
-          this.userDataSent = true;
-        }
         this.isStreaming = false;
         this.panel.input.setDisabled(false);
         this.panel.input.focus();
@@ -548,12 +585,13 @@ export class Widget {
 
   private createRequest(
     text: string,
-    options: SendRequestOptions,
-    includeUserData: boolean
+    options: SendRequestOptions
   ): WidgetChatRequest {
     const pageContext = this.config.pageContext !== false
       ? { url: window.location.href, title: document.title }
       : undefined;
+
+    const includeUserData = Boolean(this.config.preChatForm?.enabled && this.userData);
 
     return {
       conversationId: this.conversationId,
@@ -611,6 +649,19 @@ export class Widget {
         return error;
       default:
         return 'provider_error';
+    }
+  }
+
+  /**
+   * Marks a reply as failed. Text that already streamed stays, and the error
+   * shows as a note under it; an empty reply shows the error as its content.
+   */
+  private markFailed(message: MessageData, errorMessage: string): void {
+    message.status = 'error';
+    if (message.content.trim()) {
+      message.errorText = errorMessage;
+    } else {
+      message.content = errorMessage;
     }
   }
 

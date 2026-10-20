@@ -58,7 +58,7 @@ export default defineConfig({
         {
           tag: 'script',
           attrs: {
-            src: 'https://cdn.jsdelivr.net/npm/@chatcops/widget@0.2.0/dist/chatcops.min.js',
+            src: 'https://cdn.jsdelivr.net/npm/@chatcops/widget@0.4/dist/chatcops.min.js',
             'data-api-url': '/api/chat',
             'data-accent': '#6366f1',
             'data-brand-name': 'ChatCops AI',
@@ -122,6 +122,7 @@ export default defineConfig({
             { label: 'Setup', slug: 'server/setup' },
             { label: 'Express', slug: 'server/express' },
             { label: 'Vercel', slug: 'server/vercel' },
+            { label: 'Next.js, Hono, Bun, Deno', slug: 'server/fetch-runtimes' },
             { label: 'Cloudflare Workers', slug: 'server/cloudflare' },
           ],
         },

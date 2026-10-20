@@ -12,6 +12,8 @@ export interface MessageData {
   content: string;
   status?: MessageStatus;
   errorType?: MessageErrorType;
+  /** Shown under the content when a reply fails after some of it already streamed. */
+  errorText?: string;
 }
 
 export interface MessageActions {
@@ -19,6 +21,7 @@ export interface MessageActions {
   onRegenerate?: (messageId: string) => void;
   retryLabel?: string;
   regenerateLabel?: string;
+  typingLabel?: string;
 }
 
 export class Messages {
@@ -30,6 +33,8 @@ export class Messages {
     this.actions = actions;
     this.container = document.createElement('div');
     this.container.className = 'cc-messages';
+    this.container.setAttribute('role', 'log');
+    this.container.setAttribute('aria-live', 'polite');
     parent.appendChild(this.container);
   }
 
@@ -42,7 +47,7 @@ export class Messages {
   }
 
   updateMessage(msg: MessageData): void {
-    const el = this.container.querySelector(`[data-id="${msg.id}"]`) as HTMLDivElement | null;
+    const el = this.findMessage(msg.id);
     if (el) {
       this.renderMessageElement(el, msg);
       this.scrollToBottom();
@@ -53,7 +58,7 @@ export class Messages {
     if (this.typingEl) return;
     this.typingEl = document.createElement('div');
     this.typingEl.className = 'cc-typing';
-    this.typingEl.innerHTML = '<div class="cc-typing-dot"></div><div class="cc-typing-dot"></div><div class="cc-typing-dot"></div>';
+    this.typingEl.innerHTML = `<span class="cc-sr-only">${this.escapeHtml(this.actions?.typingLabel ?? 'Typing...')}</span><div class="cc-typing-dot" aria-hidden="true"></div><div class="cc-typing-dot" aria-hidden="true"></div><div class="cc-typing-dot" aria-hidden="true"></div>`;
     this.container.appendChild(this.typingEl);
     this.scrollToBottom();
   }
@@ -71,12 +76,14 @@ export class Messages {
   }
 
   removeMessage(id: string): void {
-    const el = this.container.querySelector(`[data-id="${id}"]`) as HTMLDivElement | null;
+    const el = this.findMessage(id);
     el?.remove();
   }
 
   clearRegenerateButtons(): void {
-    this.container.querySelectorAll('.cc-message-regenerate').forEach((button) => button.remove());
+    this.container.querySelectorAll('.cc-message-regenerate').forEach((button) => {
+      button.remove();
+    });
     this.cleanupEmptyActionContainers();
   }
 
@@ -85,7 +92,7 @@ export class Messages {
 
     if (!this.actions?.onRegenerate) return;
 
-    const msgEl = this.container.querySelector(`[data-id="${messageId}"]`) as HTMLDivElement | null;
+    const msgEl = this.findMessage(messageId);
     if (!msgEl || !msgEl.classList.contains('cc-message-assistant')) return;
 
     const actions = this.ensureActionsContainer(msgEl);
@@ -99,6 +106,11 @@ export class Messages {
 
   setVisible(visible: boolean): void {
     this.container.classList.toggle('cc-hidden', !visible);
+  }
+
+  private findMessage(id: string): HTMLDivElement | null {
+    const found = Array.from(this.container.children).find((el) => (el as HTMLElement).dataset.id === id);
+    return (found as HTMLDivElement | undefined) ?? null;
   }
 
   private scrollToBottom(): void {
@@ -121,6 +133,12 @@ export class Messages {
       delete el.dataset.status;
     }
 
+    if (msg.status === 'streaming') {
+      el.setAttribute('aria-busy', 'true');
+    } else {
+      el.removeAttribute('aria-busy');
+    }
+
     if (msg.errorType) {
       el.dataset.errorType = msg.errorType;
     } else {
@@ -133,6 +151,13 @@ export class Messages {
     content.className = 'cc-message-content';
     content.innerHTML = msg.role === 'assistant' ? renderMarkdown(msg.content) : this.escapeHtml(msg.content);
     el.appendChild(content);
+
+    if (msg.status === 'error' && msg.errorText) {
+      const note = document.createElement('div');
+      note.className = 'cc-message-error-note';
+      note.textContent = msg.errorText;
+      el.appendChild(note);
+    }
 
     const actions = this.createActionsContainer(msg);
     if (actions) {

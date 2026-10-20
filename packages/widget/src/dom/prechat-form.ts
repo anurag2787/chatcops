@@ -94,7 +94,8 @@ export class PreChatForm {
       select.className = 'cc-prechat-select';
       const defaultOpt = document.createElement('option');
       defaultOpt.value = '';
-      defaultOpt.textContent = field.placeholder ?? `Select ${field.label.toLowerCase()}...`;
+      defaultOpt.textContent = field.placeholder
+        ?? this.options.locale.selectPlaceholder.replace('{label}', field.label.toLowerCase());
       defaultOpt.disabled = true;
       defaultOpt.selected = true;
       select.appendChild(defaultOpt);
@@ -176,7 +177,6 @@ export class PreChatForm {
       if (field.type === 'email' && value && !this.isValidEmail(value)) {
         this.showError(field.name, this.options.locale.preChatInvalidEmail);
         valid = false;
-        continue;
       }
     }
 

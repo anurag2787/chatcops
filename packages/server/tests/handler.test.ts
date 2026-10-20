@@ -131,6 +131,32 @@ describe('createChatHandler', () => {
     expect(clearIntervalSpy).toHaveBeenCalledOnce();
   });
 
+  it('warns once when the deprecated i18n option is set', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { cleanup } = createChatHandler({
+      provider: { type: 'openai', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      i18n: { defaultLocale: 'en', locales: {} },
+    });
+    cleanup();
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy.mock.calls[0][0]).toContain('i18n');
+  });
+
+  it('does not warn when i18n is not set', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { cleanup } = createChatHandler({
+      provider: { type: 'openai', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+    });
+    cleanup();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it('passes a working tool executor into the streaming provider', async () => {
     const weatherTool = {
       name: 'get_weather',
@@ -155,7 +181,7 @@ describe('createChatHandler', () => {
           input: { city: 'Boston' },
         });
 
-        yield `Forecast: ${(toolResult?.data as { forecast: string }).forecast}`;
+        yield `Forecast: ${(toolResult?.data as { forecast?: string })?.forecast}`;
       },
       async chatSync() {
         return '';
@@ -184,12 +210,14 @@ describe('createChatHandler', () => {
     ]);
   });
 
-  it('accepts a very long page URL but only puts the start of it in the system prompt', async () => {
+  it('accepts a very long page URL but only sends the start of it, outside the system prompt', async () => {
     const prompts: string[] = [];
+    const lastUserMessages: string[] = [];
     mockedCreateProvider.mockResolvedValue({
       name: 'test-provider',
       async *chat(params) {
         prompts.push(params.systemPrompt ?? '');
+        lastUserMessages.push(params.messages.at(-1)?.content ?? '');
         yield 'ok';
       },
       async chatSync() {
@@ -214,8 +242,9 @@ describe('createChatHandler', () => {
     }
 
     expect(events).toEqual([{ content: 'ok' }, { done: true }]);
-    expect(prompts[0]).toContain(`The user is currently on: ${url.slice(0, 2000)} (Pricing)`);
-    expect(prompts[0]).not.toContain(url.slice(0, 2001));
+    expect(lastUserMessages[0]).toContain(`Page: ${url.slice(0, 2000)}`);
+    expect(lastUserMessages[0]).not.toContain(url.slice(0, 2001));
+    expect(prompts[0]).not.toContain('example.com');
   });
 
   it('passes the configured tool timeout into the provider chat params', async () => {
@@ -247,6 +276,45 @@ describe('createChatHandler', () => {
     }
 
     expect(receivedTimeouts).toEqual([2_500]);
+  });
+
+  it('passes maxTokens and temperature from the config into the provider chat params', async () => {
+    const received: Array<{ maxTokens?: number; temperature?: number }> = [];
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        received.push({ maxTokens: params.maxTokens, temperature: params.temperature });
+        yield 'ok';
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const withOptions = createChatHandler({
+      provider: { type: 'openai', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      maxTokens: 4096,
+      temperature: 0.2,
+    });
+    const withoutOptions = createChatHandler({
+      provider: { type: 'openai', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+    });
+
+    for (const { handleChat } of [withOptions, withoutOptions]) {
+      for await (const _chunk of handleChat({ conversationId: 'conv-params', message: 'Hello' })) {
+        // Drain the stream.
+      }
+    }
+    withOptions.cleanup();
+    withoutOptions.cleanup();
+
+    expect(received).toEqual([
+      { maxTokens: 4096, temperature: 0.2 },
+      { maxTokens: undefined, temperature: undefined },
+    ]);
   });
 
   it('tracks lead capture analytics when a tool succeeds', async () => {
@@ -370,7 +438,258 @@ describe('createChatHandler', () => {
     });
   });
 
-  it('removes the previous assistant message before regenerating', async () => {
+  it('returns success: true from tool executor without waiting for webhook completion', async () => {
+    let resolveWebhookFetch!: (response: Response) => void;
+    const unresolvedFetchPromise = new Promise<Response>((resolve) => {
+      resolveWebhookFetch = resolve;
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => unresolvedFetchPromise);
+
+    let executorResult: unknown = null;
+
+    const leadTool = {
+      name: 'capture_lead',
+      description: 'Capture a lead',
+      parameters: {
+        email: { type: 'string' as const, description: 'Email address' },
+      },
+      required: ['email'],
+      execute: vi.fn().mockResolvedValue({
+        success: true,
+        data: { email: 'lead@example.com' },
+        message: 'Lead stored',
+      }),
+    };
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        executorResult = await params.toolExecutor?.({
+          id: 'tool-1',
+          name: 'capture_lead',
+          input: { email: 'lead@example.com' },
+        });
+
+        yield 'Lead captured successfully.';
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+      tools: [leadTool],
+      webhooks: [{ url: 'https://hooks.test/lead', events: ['lead:captured'] }],
+    });
+
+    const generator = handleChat({
+      conversationId: 'conv-unresolved',
+      message: 'My email is lead@example.com',
+    });
+
+    // Advance to first chunk: tool executor returns immediately without waiting for unresolved fetch
+    const firstChunk = await generator.next();
+
+    expect(leadTool.execute).toHaveBeenCalledWith({ email: 'lead@example.com' });
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(executorResult).toEqual({
+      success: true,
+      data: { email: 'lead@example.com' },
+      message: 'Lead stored',
+    });
+    expect(firstChunk.done).toBe(false);
+
+    // The visitor gets done: true right away, but the generator stays open
+    // until the webhook finishes, so serverless runtimes don't cut it off.
+    let isStreamFinished = false;
+    const remaining: string[] = [];
+    const streamCompletionPromise = (async () => {
+      for await (const chunk of generator) {
+        remaining.push(chunk);
+      }
+      isStreamFinished = true;
+    })();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(remaining.map((chunk) => JSON.parse(chunk))).toContainEqual({ done: true });
+    expect(isStreamFinished).toBe(false);
+
+    // Resolving fetch allows the generator to finish awaiting pending webhooks
+    resolveWebhookFetch(new Response('OK', { status: 200 }));
+    await streamCompletionPromise;
+    expect(isStreamFinished).toBe(true);
+  });
+
+  describe('when the provider fails to set up', () => {
+    const body = (n: number) => ({ conversationId: `conv-setup-${n}`, message: 'Hello' });
+
+    async function collect(generator: AsyncGenerator<string>) {
+      const events: Array<Record<string, unknown>> = [];
+      for await (const chunk of generator) events.push(JSON.parse(chunk));
+      return events;
+    }
+
+    it('handles the rejection, logs it once, and answers every request with provider_error', async () => {
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on('unhandledRejection', onUnhandled);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockedCreateProvider.mockRejectedValue(new Error('Unknown provider type: nope'));
+
+      try {
+        const { handleChat, cleanup } = createChatHandler({
+          provider: { type: 'claude', apiKey: 'sk-secret-key' },
+          systemPrompt: 'Test',
+        });
+
+        // Give the runtime a chance to report a rejection nobody handled.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(unhandled).toEqual([]);
+
+        for (const n of [1, 2, 3]) {
+          expect(await collect(handleChat(body(n)))).toEqual([{ error: 'provider_error' }]);
+        }
+        cleanup();
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+          '[chatcops] Provider setup failed:',
+          'Unknown provider type: nope'
+        );
+        expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('sk-secret-key');
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    });
+
+    it('logs only the message, not the error object, which can carry the config', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const failure = Object.assign(new Error('Missing API key'), { config: { apiKey: 'sk-secret-key' } });
+      mockedCreateProvider.mockRejectedValue(failure);
+
+      const { cleanup } = createChatHandler({
+        provider: { type: 'claude', apiKey: 'sk-secret-key' },
+        systemPrompt: 'Test',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      cleanup();
+
+      expect(errorSpy).toHaveBeenCalledWith('[chatcops] Provider setup failed:', 'Missing API key');
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('sk-secret-key');
+    });
+
+    it('still validates requests and applies rate limits before reporting provider_error', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockedCreateProvider.mockRejectedValue(new Error('setup failed'));
+
+      const { handleChat, cleanup } = createChatHandler({
+        provider: { type: 'claude', apiKey: 'k' },
+        systemPrompt: 'Test',
+        rateLimit: { maxRequests: 1, windowMs: 60_000 },
+      });
+
+      const invalid = await collect(handleChat({ conversationId: '', message: '' }, '1.2.3.4'));
+      expect(invalid).toEqual([expect.objectContaining({ error: 'Invalid request' })]);
+
+      expect(await collect(handleChat(body(1), '5.6.7.8'))).toEqual([{ error: 'provider_error' }]);
+      expect(await collect(handleChat(body(2), '5.6.7.8'))).toEqual([
+        expect.objectContaining({ error: 'rate_limit' }),
+      ]);
+      cleanup();
+    });
+  });
+
+  it('awaits pending webhook delivery before returning provider_error when provider throws', async () => {
+    let resolveWebhookFetch!: (response: Response) => void;
+    const unresolvedFetchPromise = new Promise<Response>((resolve) => {
+      resolveWebhookFetch = resolve;
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => unresolvedFetchPromise);
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    let executorResult: unknown = null;
+
+    const leadTool = {
+      name: 'capture_lead',
+      description: 'Capture a lead',
+      parameters: {
+        email: { type: 'string' as const, description: 'Email address' },
+      },
+      required: ['email'],
+      execute: vi.fn().mockResolvedValue({
+        success: true,
+        data: { email: 'lead@example.com' },
+        message: 'Lead stored',
+      }),
+    };
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        executorResult = await params.toolExecutor?.({
+          id: 'tool-1',
+          name: 'capture_lead',
+          input: { email: 'lead@example.com' },
+        });
+
+        throw new Error('Provider failed after tool execution');
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+      tools: [leadTool],
+      webhooks: [{ url: 'https://hooks.test/lead', events: ['lead:captured'] }],
+    });
+
+    const generator = handleChat({
+      conversationId: 'conv-provider-error',
+      message: 'My email is lead@example.com',
+    });
+
+    const events: Array<Record<string, unknown>> = [];
+    let isStreamFinished = false;
+
+    const streamCompletionPromise = (async () => {
+      for await (const chunk of generator) {
+        events.push(JSON.parse(chunk));
+      }
+      isStreamFinished = true;
+    })();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(leadTool.execute).toHaveBeenCalledWith({ email: 'lead@example.com' });
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(executorResult).toEqual({
+      success: true,
+      data: { email: 'lead@example.com' },
+      message: 'Lead stored',
+    });
+    expect(isStreamFinished).toBe(false);
+    expect(events).toEqual([]);
+
+    resolveWebhookFetch(new Response('OK', { status: 200 }));
+    await streamCompletionPromise;
+
+    expect(isStreamFinished).toBe(true);
+    expect(events).toEqual([{ error: 'provider_error' }]);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[chatcops] Provider error:',
+      expect.any(Error)
+    );
+  });
+
+  it('excludes the previous assistant message from provider history when regenerating', async () => {
     const receivedMessages: Array<Array<{ role: string; content: string }>> = [];
 
     mockedCreateProvider.mockResolvedValue({
@@ -415,6 +734,319 @@ describe('createChatHandler', () => {
     expect(receivedMessages).toEqual([
       [{ role: 'user', content: 'Hello there' }],
       [{ role: 'user', content: 'Hello there' }],
+    ]);
+  });
+
+  it('preserves the old assistant message when regenerate fails', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const receivedMessages: Array<Array<{ role: string; content: string }>> = [];
+    let shouldFail = false;
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        receivedMessages.push(
+          params.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        if (shouldFail) {
+          throw new Error('Provider failed during regenerate');
+        }
+        yield receivedMessages.length === 1 ? 'Initial reply' : 'Follow up reply';
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+    });
+
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-failed-regen',
+      message: 'Hello there',
+      messageId: 'user-1',
+    })) {
+      // Drain initial response.
+    }
+
+    shouldFail = true;
+    const errorEvents: Array<Record<string, unknown>> = [];
+    for await (const chunk of handleChat({
+      conversationId: 'conv-failed-regen',
+      message: 'Hello there',
+      messageId: 'user-1',
+      regenerate: true,
+    })) {
+      errorEvents.push(JSON.parse(chunk));
+    }
+    expect(errorEvents).toEqual([{ error: 'provider_error' }]);
+
+    shouldFail = false;
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-failed-regen',
+      message: 'Next question',
+      messageId: 'user-2',
+    })) {
+      // Drain response.
+    }
+
+    expect(receivedMessages[2]).toEqual([
+      { role: 'user', content: 'Hello there' },
+      { role: 'assistant', content: 'Initial reply' },
+      { role: 'user', content: 'Next question' },
+    ]);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[chatcops] Provider error:',
+      expect.any(Error)
+    );
+  });
+
+  it('retrying regenerate after a failure does not delete earlier answers', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const receivedMessages: Array<Array<{ role: string; content: string }>> = [];
+    let shouldFail = false;
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        receivedMessages.push(
+          params.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        if (shouldFail) {
+          throw new Error('Provider failed during regenerate');
+        }
+        yield `Reply ${receivedMessages.length}`;
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+    });
+
+    // Turn 1
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-earlier',
+      message: 'First question',
+      messageId: 'user-1',
+    })) {}
+
+    // Turn 2
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-earlier',
+      message: 'Second question',
+      messageId: 'user-2',
+    })) {}
+
+    // Regenerate Turn 2 fails
+    shouldFail = true;
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-earlier',
+      message: 'Second question',
+      messageId: 'user-2',
+      regenerate: true,
+    })) {}
+
+    // Retry regenerate Turn 2 succeeds
+    shouldFail = false;
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-earlier',
+      message: 'Second question',
+      messageId: 'user-2',
+      regenerate: true,
+    })) {}
+
+    expect(receivedMessages[3]).toEqual([
+      { role: 'user', content: 'First question' },
+      { role: 'assistant', content: 'Reply 1' },
+      { role: 'user', content: 'Second question' },
+    ]);
+
+    // Subsequent Turn 3
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-earlier',
+      message: 'Third question',
+      messageId: 'user-3',
+    })) {}
+
+    expect(receivedMessages[4]).toEqual([
+      { role: 'user', content: 'First question' },
+      { role: 'assistant', content: 'Reply 1' },
+      { role: 'user', content: 'Second question' },
+      { role: 'assistant', content: 'Reply 4' },
+      { role: 'user', content: 'Third question' },
+    ]);
+  });
+
+  it('successfully replaces exactly one assistant message upon regenerate', async () => {
+    const receivedMessages: Array<Array<{ role: string; content: string }>> = [];
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        receivedMessages.push(
+          params.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        yield receivedMessages.length === 3 ? 'Regenerated reply 2' : `Reply ${receivedMessages.length}`;
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+    });
+
+    // Turn 1
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-replace-one',
+      message: 'First question',
+      messageId: 'user-1',
+    })) {}
+
+    // Turn 2
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-replace-one',
+      message: 'Second question',
+      messageId: 'user-2',
+    })) {}
+
+    // Regenerate Turn 2
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-replace-one',
+      message: 'Second question',
+      messageId: 'user-2',
+      regenerate: true,
+    })) {}
+
+    // Turn 3
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-replace-one',
+      message: 'Third question',
+      messageId: 'user-3',
+    })) {}
+
+    const assistantMessages = receivedMessages[3].filter((m) => m.role === 'assistant');
+    expect(assistantMessages).toEqual([
+      { role: 'assistant', content: 'Reply 1' },
+      { role: 'assistant', content: 'Regenerated reply 2' },
+    ]);
+    expect(assistantMessages).toHaveLength(2);
+    expect(receivedMessages[3]).toEqual([
+      { role: 'user', content: 'First question' },
+      { role: 'assistant', content: 'Reply 1' },
+      { role: 'user', content: 'Second question' },
+      { role: 'assistant', content: 'Regenerated reply 2' },
+      { role: 'user', content: 'Third question' },
+    ]);
+  });
+
+  it('restores user message when regenerating an unknown conversation', async () => {
+    const receivedMessages: Array<Array<{ id: string; role: string; content: string }>> = [];
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        receivedMessages.push(
+          params.messages.map((message) => ({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        yield 'Recovered reply';
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+    });
+
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-unknown-regen',
+      message: 'Hello from unknown',
+      messageId: 'user-unknown-1',
+      regenerate: true,
+    })) {
+      // Drain response.
+    }
+
+    expect(receivedMessages).toEqual([
+      [{ id: 'user-unknown-1', role: 'user', content: 'Hello from unknown' }],
+    ]);
+  });
+
+  it('keeps repeated regenerate retries with the same messageId idempotent', async () => {
+    const receivedMessages: Array<Array<{ id: string; role: string; content: string }>> = [];
+
+    mockedCreateProvider.mockResolvedValue({
+      name: 'test-provider',
+      async *chat(params) {
+        receivedMessages.push(
+          params.messages.map((message) => ({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+          }))
+        );
+        yield receivedMessages.length === 1 ? 'First reply' : 'Retried reply';
+      },
+      async chatSync() {
+        return '';
+      },
+    });
+
+    const { handleChat } = createChatHandler({
+      provider: { type: 'claude', apiKey: 'test-key' },
+      systemPrompt: 'Test',
+      cors: '*',
+    });
+
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-regen',
+      message: 'Retry message',
+      messageId: 'user-retry-1',
+      regenerate: true,
+    })) {
+      // Drain first turn.
+    }
+
+    for await (const _chunk of handleChat({
+      conversationId: 'conv-retry-regen',
+      message: 'Retry message',
+      messageId: 'user-retry-1',
+      regenerate: true,
+    })) {
+      // Drain retry turn.
+    }
+
+    expect(receivedMessages).toEqual([
+      [{ id: 'user-retry-1', role: 'user', content: 'Retry message' }],
+      [{ id: 'user-retry-1', role: 'user', content: 'Retry message' }],
     ]);
   });
 });

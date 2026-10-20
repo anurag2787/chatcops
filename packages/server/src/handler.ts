@@ -6,13 +6,25 @@ import {
   type ChatMessage,
 } from '@chatcops/core';
 import type { ChatCopsServerConfig, ValidatedChatRequest } from './config.js';
-import { chatRequestSchema, MAX_PAGE_URL_LENGTH } from './config.js';
+import { chatRequestSchema } from './config.js';
+import { VISITOR_CONTEXT_INSTRUCTION, buildVisitorContext, isLocaleTag, withVisitorContext } from './visitor-context.js';
 import { RateLimiter } from './rate-limit.js';
 import { WebhookDispatcher } from './webhook.js';
 
 export function createChatHandler(config: ChatCopsServerConfig) {
+  if (config.i18n) {
+    console.warn('[chatcops] The `i18n` option is deprecated and ignored. Set the widget text with its `strings` option.');
+  }
+
   const providerPromise = createProvider(config.provider);
-  const conversations = new ConversationManager();
+  // A failed setup (unknown provider type, SDK that throws on a missing key)
+  // is logged once here and reported to visitors per request below. Without
+  // this handler it would be an unhandled rejection and stop the process.
+  // Only the message is logged: SDK errors can carry the config or headers.
+  providerPromise.catch((err) => {
+    console.error('[chatcops] Provider setup failed:', err instanceof Error ? err.message : String(err));
+  });
+  const conversations = new ConversationManager({ store: config.conversationStore });
   const rateLimiter = config.rateLimit ? new RateLimiter(config.rateLimit) : new RateLimiter();
   const analytics = config.analytics ? new AnalyticsCollector() : null;
   const webhooks = config.webhooks?.length ? new WebhookDispatcher(config.webhooks) : null;
@@ -22,11 +34,17 @@ export function createChatHandler(config: ChatCopsServerConfig) {
   // Periodic cleanup
   const cleanupInterval = setInterval(() => rateLimiter.cleanup(), 60_000);
 
+  /**
+   * Streams one reply. Pass `options.signal` to stop when the visitor goes
+   * away: the provider request is cancelled, nothing more is yielded, and the
+   * partial reply isn't saved.
+   */
   async function* handleChat(
     body: unknown,
-    clientIp?: string
+    clientIp?: string,
+    options: { signal?: AbortSignal } = {}
   ): AsyncGenerator<string> {
-    const provider = await providerPromise;
+    const { signal } = options;
     // Validate request
     const parsed = chatRequestSchema.safeParse(body);
     if (!parsed.success) {
@@ -45,18 +63,32 @@ export function createChatHandler(config: ChatCopsServerConfig) {
       }
     }
 
+    let provider: Awaited<typeof providerPromise>;
+    try {
+      provider = await providerPromise;
+    } catch {
+      // Already logged where the provider was created.
+      yield JSON.stringify({ error: 'provider_error' });
+      return;
+    }
+
     // Get or create conversation
     await conversations.getOrCreate(req.conversationId);
 
+    const conversationMessages = await conversations.getMessages(req.conversationId);
+
+    let assistantToReplace: ChatMessage | undefined;
     if (req.regenerate) {
-      const existingMessages = await conversations.getMessages(req.conversationId);
-      const lastAssistant = [...existingMessages].reverse().find((message) => message.role === 'assistant');
-      if (lastAssistant) {
-        await conversations.removeMessage(req.conversationId, lastAssistant.id);
+      const userIndex = req.messageId
+        ? conversationMessages.findIndex((message) => message.id === req.messageId)
+        : findLastIndex(conversationMessages, (message) => message.role === 'user');
+
+      if (userIndex !== -1) {
+        assistantToReplace = conversationMessages.slice(userIndex + 1).find((message) => message.role === 'assistant');
+      } else if (!req.messageId) {
+        assistantToReplace = [...conversationMessages].reverse().find((message) => message.role === 'assistant');
       }
     }
-
-    const conversationMessages = await conversations.getMessages(req.conversationId);
 
     // Track analytics
     if (analytics && conversationMessages.length === 0) {
@@ -64,12 +96,19 @@ export function createChatHandler(config: ChatCopsServerConfig) {
     }
     analytics?.track('message:sent', { conversationId: req.conversationId });
 
-    // Add user message unless this is a regenerate request or a retry of the same message
+    // Add user message unless this is a retry of the same message or a regenerate request that already has a user message
     const hasExistingUserMessage = req.messageId
       ? conversationMessages.some((message) => message.id === req.messageId)
       : false;
+    const hasUserMessageToAnswer = req.messageId
+      ? hasExistingUserMessage
+      : conversationMessages.some((message) => message.role === 'user');
 
-    if (!req.regenerate && !hasExistingUserMessage) {
+    const shouldAddUserMessage = req.regenerate
+      ? !hasUserMessageToAnswer
+      : !hasExistingUserMessage;
+
+    if (shouldAddUserMessage) {
       const userMessage: ChatMessage = {
         id: req.messageId ?? crypto.randomUUID(),
         role: 'user',
@@ -93,41 +132,39 @@ export function createChatHandler(config: ChatCopsServerConfig) {
       }
     }
 
-    // Add page context
-    if (req.pageContext) {
-      // A page URL can be very long (tracking parameters, tokens). The start is all the model needs.
-      const pageUrl = req.pageContext.url.slice(0, MAX_PAGE_URL_LENGTH);
-      systemPrompt += `\n\nThe user is currently on: ${pageUrl} (${req.pageContext.title})`;
-      if (req.pageContext.description) {
-        systemPrompt += `\nPage description: ${req.pageContext.description}`;
-      }
+    // Visitor-supplied page context and pre-chat answers never go into the
+    // system prompt; see visitor-context.ts.
+    const visitorContext = buildVisitorContext(req);
+    if (visitorContext) {
+      systemPrompt += `\n\n${VISITOR_CONTEXT_INSTRUCTION}`;
     }
 
-    // Add user data from pre-chat form
-    if (req.userData && Object.keys(req.userData).length > 0) {
-      const userInfo = Object.entries(req.userData)
-        .map(([key, val]) => `${key}: ${val}`)
-        .join(', ');
-      systemPrompt += `\n\nUser information: ${userInfo}`;
-    }
-
-    // Add locale info
-    if (req.locale) {
-      systemPrompt += `\n\nRespond in the user's language. Current locale: ${req.locale}`;
+    if (req.locale && isLocaleTag(req.locale)) {
+      systemPrompt += `\n\nReply in the visitor's language. Their browser locale is ${req.locale}.`;
     }
 
     // Get conversation messages for context
-    const messages = await conversations.getMessages(req.conversationId);
+    const storedMessages = await conversations.getMessages(req.conversationId);
+    const messages = withVisitorContext(
+      assistantToReplace
+        ? storedMessages.filter((message) => message.id !== assistantToReplace.id)
+        : storedMessages,
+      visitorContext
+    );
 
     // Stream response
     let fullResponse = '';
     const pendingEvents: string[] = [];
+    const pendingWebhooks = new Set<Promise<void>>();
     try {
       for await (const chunk of provider.chat({
         messages,
         systemPrompt,
         tools: toolDefs.length > 0 ? toolDefs : undefined,
         toolTimeoutMs: config.toolTimeoutMs,
+        maxTokens: config.maxTokens,
+        temperature: config.temperature,
+        signal,
         toolExecutor: async (toolCall) => {
           const tool = toolsByName.get(toolCall.name);
           if (!tool) {
@@ -146,16 +183,25 @@ export function createChatHandler(config: ChatCopsServerConfig) {
               leadData: result.data,
             }));
             if (webhooks) {
-              await webhooks.dispatch('lead:captured', {
-                lead: result.data,
-                conversationId: req.conversationId,
-              });
+              const delivery = webhooks
+                .dispatch('lead:captured', {
+                  lead: result.data,
+                  conversationId: req.conversationId,
+                })
+                .catch((err) => {
+                  console.error('[chatcops] Webhook delivery failed:', err);
+                })
+                .finally(() => {
+                  pendingWebhooks.delete(delivery);
+                });
+              pendingWebhooks.add(delivery);
             }
           }
 
           return result;
         },
       })) {
+        if (signal?.aborted) break;
         while (pendingEvents.length > 0) {
           yield pendingEvents.shift()!;
         }
@@ -167,8 +213,19 @@ export function createChatHandler(config: ChatCopsServerConfig) {
         yield pendingEvents.shift()!;
       }
     } catch (err) {
+      if (signal?.aborted) {
+        // The visitor left. Let lead webhooks finish, but write nothing else.
+        await awaitPendingWebhooks(pendingWebhooks);
+        return;
+      }
       console.error('[chatcops] Provider error:', err);
+      await awaitPendingWebhooks(pendingWebhooks);
       yield JSON.stringify({ error: 'provider_error' });
+      return;
+    }
+
+    if (signal?.aborted) {
+      await awaitPendingWebhooks(pendingWebhooks);
       return;
     }
 
@@ -181,10 +238,17 @@ export function createChatHandler(config: ChatCopsServerConfig) {
         timestamp: Date.now(),
       };
       await conversations.addMessage(req.conversationId, assistantMessage);
+      if (assistantToReplace) {
+        await conversations.removeMessage(req.conversationId, assistantToReplace.id);
+      }
       analytics?.track('message:received', { conversationId: req.conversationId });
     }
 
+    // The reply is finished for the visitor, so say so first. Keeping the generator
+    // open until lead webhooks finish keeps serverless runtimes from cutting
+    // them off once the response ends.
     yield JSON.stringify({ done: true });
+    await awaitPendingWebhooks(pendingWebhooks);
   }
 
   function cleanup() {
@@ -197,3 +261,18 @@ export function createChatHandler(config: ChatCopsServerConfig) {
     cleanup,
   };
 }
+
+async function awaitPendingWebhooks(pendingWebhooks: Set<Promise<void>>): Promise<void> {
+  if (pendingWebhooks.size > 0) {
+    await Promise.allSettled(Array.from(pendingWebhooks));
+    pendingWebhooks.clear();
+  }
+}
+
+function findLastIndex<T>(array: T[], predicate: (item: T) => boolean): number {
+  for (let i = array.length - 1; i >= 0; i--) {
+    if (predicate(array[i])) return i;
+  }
+  return -1;
+}
+
