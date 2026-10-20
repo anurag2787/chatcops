@@ -39,7 +39,7 @@ const faq = new FAQKnowledgeSource([
   {
     question: 'Does ChatCops support multiple languages?',
     answer:
-      'The widget ships with English built in. The @chatcops/core package includes eight locales. Built-in widget translations are tracked separately in issue #55.',
+      'The widget has English built in. The `@chatcops/core` package provides eight locales, while built-in translations for the widget are planned separately.',
   },
   {
     question: 'How does the lead capture tool work?',
