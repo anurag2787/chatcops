@@ -26,6 +26,8 @@ export interface ChatCopsServerConfig {
   rateLimit?: { maxRequests: number; windowMs: number };
   webhooks?: WebhookConfig[];
   analytics?: boolean;
+  /** Bearer token required to read the analytics endpoint. When unset, the endpoint is public. */
+  analyticsToken?: string;
   /** Storage backend for conversation history. Defaults to an in-memory store (`MemoryStore`). */
   conversationStore?: ConversationStore;
   /** Allowed CORS origin. Defaults to `'*'`. */
