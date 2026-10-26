@@ -5,7 +5,7 @@ export interface FABOptions {
   position: 'bottom-right' | 'bottom-left';
   openLabel: string;
   closeLabel: string;
-  unreadLabel?: string;
+  unreadLabel: string;
   onClick: () => void;
 }
 
@@ -19,7 +19,7 @@ export class FAB {
   constructor(root: ShadowRoot, options: FABOptions) {
     this.openLabel = options.openLabel;
     this.closeLabel = options.closeLabel;
-    this.unreadLabel = options.unreadLabel ?? '{count} unread';
+    this.unreadLabel = options.unreadLabel;
 
     this.el = document.createElement('button');
     this.el.className = 'cc-fab cc-pulse';

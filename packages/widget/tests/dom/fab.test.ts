@@ -4,6 +4,7 @@ import { FAB } from '../../src/dom/fab.js';
 const defaultOptions = {
   openLabel: 'Open chat',
   closeLabel: 'Close',
+  unreadLabel: '{count} unread',
 } as const;
 
 describe('FAB', () => {
@@ -55,6 +56,7 @@ describe('FAB', () => {
       position: 'bottom-right',
       openLabel: 'Abrir chat',
       closeLabel: 'Cerrar',
+      unreadLabel: '{count} sin leer',
       onClick: vi.fn(),
     });
     const btn = root.querySelector('.cc-fab') as HTMLElement;
