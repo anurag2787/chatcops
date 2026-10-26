@@ -18,6 +18,7 @@
   --cc-fab-size: 56px;
   --cc-panel-width: 400px;
   --cc-panel-height: 560px;
+  --cc-focus-ring: 0 0 0 2px var(--cc-bg), 0 0 0 4px var(--cc-accent);
 
   all: initial;
   font-family: var(--cc-font);
@@ -106,8 +107,8 @@
 }
 
 .cc-fab:focus-visible {
-  outline: 2px solid var(--cc-accent);
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: var(--cc-focus-ring);
 }
 
 @media (prefers-reduced-motion: reduce) {

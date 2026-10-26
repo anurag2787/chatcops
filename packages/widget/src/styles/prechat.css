@@ -105,7 +105,10 @@
   cursor: not-allowed;
 }
 
+.cc-prechat-input:focus-visible,
+.cc-prechat-select:focus-visible,
+.cc-prechat-textarea:focus-visible,
 .cc-prechat-submit:focus-visible {
-  outline: 2px solid var(--cc-accent);
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: var(--cc-focus-ring);
 }
