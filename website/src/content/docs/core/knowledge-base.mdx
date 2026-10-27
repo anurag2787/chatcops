@@ -110,13 +110,15 @@ class VectorKnowledgeSource implements KnowledgeSource {
 
 ## Retrieval from a vector store
 
-`openaiEmbedder` turns text into vectors (`text-embedding-3-small` at 1024 dimensions by default), and `retrieverKnowledge` turns any `Retriever` into a knowledge source:
+`openaiEmbedder` and `geminiEmbedder` turn text into vectors (`text-embedding-3-small` and `gemini-embedding-001`, each at 1024 dimensions by default), and `retrieverKnowledge` turns any `Retriever` into a knowledge source:
 
 ```typescript
-import { memoryVectors, openaiEmbedder, retrieverKnowledge, type Retriever } from '@chatcops/core';
+import { geminiEmbedder, memoryVectors, openaiEmbedder, retrieverKnowledge, type Retriever } from '@chatcops/core';
 import { chatcopsMiddleware } from '@chatcops/server';
 
-const embedder = openaiEmbedder({ apiKey: process.env.OPENAI_API_KEY! });
+const embedder = geminiEmbedder({ apiKey: process.env.GEMINI_API_KEY! });
+// Or with OpenAI:
+// const embedder = openaiEmbedder({ apiKey: process.env.OPENAI_API_KEY! });
 const vectors = memoryVectors({ dimensions: embedder.dimensions });
 
 const retriever: Retriever = {

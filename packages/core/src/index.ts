@@ -87,8 +87,8 @@ export type { KnowledgeSource, FAQPair } from './knowledge/index.js';
 export { TextKnowledgeSource, FAQKnowledgeSource } from './knowledge/index.js';
 
 // Retrieval
-export type { Embedder, RetrievedChunk, RetrievalQuery, Retriever, OpenAIEmbedderOptions, RetrieverKnowledgeOptions } from './retrieval/index.js';
-export { openaiEmbedder, retrieverKnowledge, formatSources, uniqueChunks, SOURCES_INSTRUCTION } from './retrieval/index.js';
+export type { Embedder, RetrievedChunk, RetrievalQuery, Retriever, OpenAIEmbedderOptions, GeminiEmbedderOptions, RetrieverKnowledgeOptions } from './retrieval/index.js';
+export { openaiEmbedder, geminiEmbedder, retrieverKnowledge, formatSources, uniqueChunks, SOURCES_INSTRUCTION } from './retrieval/index.js';
 
 // Conversation
 export type { ConversationStore } from './conversation/index.js';
