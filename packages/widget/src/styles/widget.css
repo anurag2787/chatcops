@@ -522,7 +522,7 @@
 .cc-message-regenerate:focus-visible,
 .cc-bubble-close:focus-visible,
 .cc-input:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
   box-shadow: var(--cc-focus-ring);
 }
 

@@ -107,8 +107,9 @@
 }
 
 .cc-fab:focus-visible {
-  outline: none;
-  box-shadow: var(--cc-focus-ring);
+  outline: 2px solid transparent;
+  box-shadow: var(--cc-focus-ring), 0 4px 16px rgba(0, 0, 0, 0.3);
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

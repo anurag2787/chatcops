@@ -128,15 +128,8 @@ describe('accent text contrast', () => {
 });
 
 describe('focus ring', () => {
-  const widgetCssPath = ['src/styles/widget.css', 'packages/widget/src/styles/widget.css']
-    .map((p) => resolve(process.cwd(), p))
-    .find((p) => existsSync(p))!;
-  const widgetCss = readFileSync(widgetCssPath, 'utf8');
-
-  const prechatCssPath = ['src/styles/prechat.css', 'packages/widget/src/styles/prechat.css']
-    .map((p) => resolve(process.cwd(), p))
-    .find((p) => existsSync(p))!;
-  const prechatCss = readFileSync(prechatCssPath, 'utf8');
+  const widgetCss = readFileSync(resolve(__dirname, '../src/styles/widget.css'), 'utf8');
+  const prechatCss = readFileSync(resolve(__dirname, '../src/styles/prechat.css'), 'utf8');
 
   it('defines --cc-focus-ring on :host', () => {
     expect(css).toContain('--cc-focus-ring: 0 0 0 2px var(--cc-bg), 0 0 0 4px var(--cc-accent);');
@@ -144,7 +137,11 @@ describe('focus ring', () => {
 
   it('applies --cc-focus-ring to the launcher button on :focus-visible', () => {
     expect(css).toContain('.cc-fab:focus-visible');
-    expect(css).toMatch(/\.cc-fab:focus-visible\s*\{[^}]*box-shadow:\s*var\(--cc-focus-ring\);/);
+    expect(css).toMatch(/\.cc-fab:focus-visible\s*\{[^}]*box-shadow:\s*var\(--cc-focus-ring\)/);
+  });
+
+  it('stops the pulse animation on launcher focus-visible', () => {
+    expect(css).toMatch(/\.cc-fab:focus-visible\s*\{[^}]*animation:\s*none;/);
   });
 
   it('applies --cc-focus-ring to widget controls on :focus-visible', () => {

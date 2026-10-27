@@ -109,7 +109,7 @@
 .cc-prechat-select:focus-visible,
 .cc-prechat-textarea:focus-visible,
 .cc-prechat-submit:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
   box-shadow: var(--cc-focus-ring);
 }
 
