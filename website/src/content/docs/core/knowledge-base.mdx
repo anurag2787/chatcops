@@ -110,15 +110,13 @@ class VectorKnowledgeSource implements KnowledgeSource {
 
 ## Retrieval from a vector store
 
-`openaiEmbedder` and `geminiEmbedder` turn text into vectors (`text-embedding-3-small` and `gemini-embedding-001` at 1024 dimensions by default), a retriever searches a vector store with them, and `retrieverKnowledge` turns the retriever into a knowledge source:
+`openaiEmbedder` turns text into vectors (`text-embedding-3-small` at 1024 dimensions by default), a retriever searches a vector store with them, and `retrieverKnowledge` turns the retriever into a knowledge source:
 
 ```typescript
-import { geminiEmbedder, hybridRetriever, memoryVectors, openaiEmbedder, retrieverKnowledge } from '@chatcops/core';
+import { hybridRetriever, memoryVectors, openaiEmbedder, retrieverKnowledge } from '@chatcops/core';
 import { chatcopsMiddleware } from '@chatcops/server';
 
-const embedder = geminiEmbedder({ apiKey: process.env.GEMINI_API_KEY! });
-// Or with OpenAI:
-// const embedder = openaiEmbedder({ apiKey: process.env.OPENAI_API_KEY! });
+const embedder = openaiEmbedder({ apiKey: process.env.OPENAI_API_KEY! });
 const vectors = memoryVectors({ dimensions: embedder.dimensions });
 
 const handler = chatcopsMiddleware({
@@ -126,6 +124,14 @@ const handler = chatcopsMiddleware({
   systemPrompt: 'Answer questions about Acme.',
   knowledge: [retrieverKnowledge(hybridRetriever({ store: vectors, embedder }), { topK: 5 })],
 });
+```
+
+`geminiEmbedder` does the same with [Google's Gemini API](https://ai.google.dev/gemini-api/docs/embeddings). It defaults to `gemini-embedding-001` at 1024 dimensions:
+
+```typescript
+import { geminiEmbedder } from '@chatcops/core';
+
+const embedder = geminiEmbedder({ apiKey: process.env.GEMINI_API_KEY! });
 ```
 
 `voyageEmbedder` does the same with [Voyage AI](https://docs.voyageai.com/reference/embeddings-api). It uses `voyage-4-large` at 1024 dimensions by default, and tells Voyage whether it is embedding a document or a search query, which Voyage embeds differently:

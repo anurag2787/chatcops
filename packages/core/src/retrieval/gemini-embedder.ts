@@ -10,13 +10,17 @@ export interface GeminiEmbedderOptions {
   dimensions?: number;
   /** Default `https://generativelanguage.googleapis.com/v1beta`. */
   baseUrl?: string;
-  /** Texts per request. Default 100. */
+  /**
+   * Texts per request. Default 100, and at most 100, which is what Gemini
+   * accepts.
+   */
   batchSize?: number;
   /** For tests and proxies. */
   fetch?: typeof fetch;
 }
 
 const MAX_ATTEMPTS = 3;
+const MAX_BATCH_SIZE = 100;
 
 /**
  * Embeddings from Google's Gemini API, with `fetch` only. Rate limits and
@@ -28,7 +32,7 @@ export function geminiEmbedder(options: GeminiEmbedderOptions): Embedder {
   const model = rawModel.replace(/^models\//, '');
   const dimensions = options.dimensions ?? 1024;
   const baseUrl = (options.baseUrl ?? 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
-  const batchSize = options.batchSize ?? 100;
+  const batchSize = Math.min(Math.max(Math.floor(options.batchSize ?? 100) || 1, 1), MAX_BATCH_SIZE);
   const send = options.fetch ?? fetch;
 
   async function request(input: string[], kind: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array[]> {

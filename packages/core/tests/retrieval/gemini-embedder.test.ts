@@ -73,6 +73,19 @@ describe('geminiEmbedder', () => {
     expect(JSON.parse(String(queryInit?.body)).requests[0].taskType).toBe('RETRIEVAL_QUERY');
   });
 
+  it.each([
+    [0, 1],
+    [500, 100],
+  ])('with batchSize %s clamps to at most %s texts in a request', async (batchSize, expected) => {
+    const send = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const requests = JSON.parse(String(init?.body)).requests as unknown[];
+      return json(embeddings(requests.map(() => [1])));
+    });
+    const texts = Array.from({ length: 101 }, (_, i) => String(i));
+    await geminiEmbedder({ apiKey: 'k', dimensions: 1, batchSize, fetch: send }).embed(texts, 'document');
+    expect(Math.max(...send.mock.calls.map((call) => (JSON.parse(String(call[1]?.body)).requests as unknown[]).length))).toBe(expected);
+  });
+
   it('makes no request for no texts, and accepts model with models/ prefix', async () => {
     const send = vi.fn(async () => json(embeddings([[1, 2]])));
     const embedder = geminiEmbedder({ apiKey: 'k', model: 'models/gemini-embedding-001', dimensions: 2, fetch: send });
