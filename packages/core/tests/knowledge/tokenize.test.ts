@@ -23,4 +23,10 @@ describe('tokenize', () => {
     expect(tokenize('价格')).toEqual(['价格']);
     expect(tokenize('환불')).toEqual(['환불']);
   });
+
+  it('drops single hiragana particles but keeps single kanji and hangul', () => {
+    expect(tokenize('は')).toEqual([]);
+    expect(tokenize('金')).toEqual(['金']);
+    expect(tokenize('税')).toEqual(['税']);
+  });
 });

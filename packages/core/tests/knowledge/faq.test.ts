@@ -61,4 +61,14 @@ describe('FAQKnowledgeSource', () => {
 
     expect(context).toContain('30日間の返金保証');
   });
+
+  it('returns empty when Japanese query only matches particles', async () => {
+    const source = new FAQKnowledgeSource([
+      { question: '営業時間は何時ですか？', answer: '平日9時から18時です。' },
+      { question: '配送にかかる日数は？', answer: '3日から5日です。' },
+    ]);
+    const context = await source.getContext('返金はできますか？');
+
+    expect(context).toBe('');
+  });
 });
