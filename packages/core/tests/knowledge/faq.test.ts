@@ -51,4 +51,14 @@ describe('FAQKnowledgeSource', () => {
     expect(context).toContain('Q:');
     expect(context).toContain('A:');
   });
+
+  it('matches a question in Japanese', async () => {
+    const source = new FAQKnowledgeSource([
+      { question: '返金はできますか？', answer: 'はい、30日間の返金保証があります。' },
+      { question: '営業時間は何時ですか？', answer: '平日午前9時から午後6時まで営業しています。' },
+    ]);
+    const context = await source.getContext('返金について教えてください');
+
+    expect(context).toContain('30日間の返金保証');
+  });
 });

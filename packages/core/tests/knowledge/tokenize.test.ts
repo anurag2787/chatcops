@@ -17,4 +17,10 @@ describe('tokenize', () => {
   it('returns an empty array for punctuation-only input', () => {
     expect(tokenize('???')).toEqual([]);
   });
+
+  it('keeps short words in Han, Hiragana, Katakana and Hangul', () => {
+    expect(tokenize('料金')).toEqual(['料金']);
+    expect(tokenize('价格')).toEqual(['价格']);
+    expect(tokenize('환불')).toEqual(['환불']);
+  });
 });
