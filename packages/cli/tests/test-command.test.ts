@@ -400,7 +400,7 @@ describe('assertions', () => {
     expect(await check({ javascript: './checks/async.mjs' }, turn, [turn], context)).toMatchObject({ pass: true, reason: 'async ok' });
   });
 
-  it('javascript: throw, missing file, no default export', async () => {
+  it('javascript: throw, missing file, no default export, not- on a setup error still fails', async () => {
     const fixture = join(TMP, 'js-errors.chat.yaml');
     const checksDir = join(TMP, 'checks-errors');
     mkdirSync(checksDir, { recursive: true });
@@ -423,5 +423,10 @@ describe('assertions', () => {
     expect(noDefault).toMatchObject({ pass: false, reason: expect.stringContaining('no default function') });
 
     expect(await check({ javascript: 123 }, turn, [turn], context)).toMatchObject({ pass: false, reason: 'javascript takes a path to a module' });
+
+    // not- on a setup error must still fail, not flip to pass.
+    const notMissing = await check({ 'not-javascript': './checks-errors/does-not-exist.mjs' }, turn, [turn], context);
+    expect(notMissing).toMatchObject({ pass: false });
+    expect(notMissing.reason).toContain('does-not-exist.mjs');
   });
 });

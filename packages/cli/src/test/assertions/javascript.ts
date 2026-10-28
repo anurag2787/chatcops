@@ -7,7 +7,8 @@ type JavaScriptModule = { default?: (turn: TurnResult, conversation: TurnResult[
 const cache = new Map<string, JavaScriptModule>();
 
 async function loadModule(path: string): Promise<JavaScriptModule> {
-  if (cache.has(path)) return cache.get(path)!;
+  const cached = cache.get(path);
+  if (cached) return cached;
   const mod = (await import(pathToFileURL(path).href)) as JavaScriptModule;
   cache.set(path, mod);
   return mod;
@@ -30,18 +31,18 @@ export const javascript: AssertionCheck = async (value, turn, conversation, cont
   try {
     mod = await loadModule(path);
   } catch (error) {
-    return { pass: false, reason: `${name}: ${error instanceof Error ? error.message : String(error)}` };
+    throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   if (typeof mod.default !== 'function') {
-    return { pass: false, reason: `${name}: the module has no default function` };
+    throw new Error(`${name}: the module has no default function`);
   }
 
   let result: unknown;
   try {
     result = await mod.default(turn, conversation);
   } catch (error) {
-    return { pass: false, reason: `${name}: ${error instanceof Error ? error.message : String(error)}` };
+    throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   if (typeof result === 'boolean') {
@@ -51,5 +52,5 @@ export const javascript: AssertionCheck = async (value, turn, conversation, cont
     const { pass, reason, score } = result as { pass: boolean; reason?: string; score?: number };
     return { pass, ...(reason !== undefined ? { reason } : {}), ...(score !== undefined ? { score } : {}) };
   }
-  return { pass: false, reason: `${name}: the default export must return a boolean or { pass, reason?, score? }` };
+  throw new Error(`${name}: the default export must return a boolean or { pass, reason?, score? }`);
 };
