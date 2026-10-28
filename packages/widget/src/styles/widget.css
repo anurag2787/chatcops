@@ -247,18 +247,13 @@
   padding: 0;
 }
 
-.cc-message ul,
-.cc-message ol {
+.cc-message ul, .cc-message ol {
   padding-inline-start: 20px;
   margin: 4px 0;
 }
 
-.cc-message h1,
-.cc-message h2,
-.cc-message h3,
-.cc-message h4,
-.cc-message h5,
-.cc-message h6 {
+.cc-message h1, .cc-message h2, .cc-message h3,
+.cc-message h4, .cc-message h5, .cc-message h6 {
   font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
@@ -348,25 +343,12 @@
   animation: cc-bounce 1.2s infinite;
 }
 
-.cc-typing-dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.cc-typing-dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
+.cc-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.cc-typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
 @keyframes cc-bounce {
-
-  0%,
-  60%,
-  100% {
-    transform: translateY(0);
-  }
-
-  30% {
-    transform: translateY(-4px);
-  }
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
 }
 
 /* Input area */
