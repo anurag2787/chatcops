@@ -1,5 +1,6 @@
 import type { Assertion, AssertionCheck, AssertionContext, AssertionResult, TurnResult } from '../types.js';
 import { judge } from './judge.js';
+import { javascript } from './javascript.js';
 import { contains } from './text.js';
 import { costUnder, latencyUnder, tokensUnder } from './usage.js';
 
@@ -11,6 +12,7 @@ import { costUnder, latencyUnder, tokensUnder } from './usage.js';
  */
 export const ASSERTIONS = new Map<string, AssertionCheck>([
   ['contains', contains],
+  ['javascript', javascript],
   ['judge', judge],
   ['tokens-under', tokensUnder],
   ['latency-under', latencyUnder],
