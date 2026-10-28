@@ -19,6 +19,7 @@ interface StoredConversation {
     status?: 'streaming' | 'complete' | 'error';
     errorType?: MessageErrorType;
     timestamp: number;
+    sources?: Array<{ url: string; title?: string }>;
   }>;
   /** Pre-chat answers, kept with the conversation so a restored chat has them too. */
   userData?: Record<string, string>;

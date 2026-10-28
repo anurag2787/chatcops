@@ -198,4 +198,18 @@ describe('ConversationStorage', () => {
     expect(loaded?.messages).toEqual([validUser, validAssistant, validEmptyContent]);
     expect(localStorage.getItem('chatcops_conversation_test')).not.toBeNull();
   });
+
+  it('saves and loads sources with their message', () => {
+    const storage = new ConversationStorage('test');
+    const sources = [{ url: 'https://example.com/pricing', title: 'Pricing' }];
+    storage.save({
+      id: 'conv-src',
+      messages: [
+        { id: 'm1', role: 'assistant', content: 'See the docs.', timestamp: Date.now(), sources },
+      ],
+      updatedAt: Date.now(),
+    });
+    const loaded = storage.load();
+    expect(loaded?.messages[0].sources).toEqual(sources);
+  });
 });
