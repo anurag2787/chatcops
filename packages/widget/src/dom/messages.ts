@@ -184,8 +184,8 @@ export class Messages {
     content.innerHTML = msg.role === 'assistant' ? renderMarkdown(msg.content) : this.escapeHtml(msg.content);
     el.appendChild(content);
 
-    if (msg.role === 'assistant' && msg.sources && msg.sources.length > 0) {
-      const safeUrls = msg.sources.filter((s) => s.url.startsWith('http://') || s.url.startsWith('https://'));
+    if (msg.role === 'assistant' && Array.isArray(msg.sources) && msg.sources.length > 0) {
+      const safeUrls = msg.sources.filter((s) => typeof s.url === 'string' && (s.url.startsWith('http://') || s.url.startsWith('https://')));
       if (safeUrls.length > 0) {
         const nav = document.createElement('nav');
         nav.className = 'cc-message-sources';
