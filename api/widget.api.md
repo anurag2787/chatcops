@@ -99,6 +99,7 @@ export declare class Widget {
     }): Promise<void>;
     newConversation(): void;
     clear(): void;
+    downloadTranscript(): void;
     setUser(user: {
         email?: string;
         name?: string;
@@ -155,6 +156,7 @@ export interface WidgetConfig {
     onPreChatSubmit?: (data: Record<string, string>) => void;
     waitForConsent?: boolean;
     onConsentRequest?: () => void;
+    privacyUrl?: string;
 }
 
 export type WidgetEventHandler<E extends WidgetEventType = WidgetEventType> = (...args: WidgetEvents[E]) => void;
@@ -217,9 +219,12 @@ export interface WidgetLocaleStrings {
     disclosureLearnMore: string;
     consentNotice: string;
     consentButton: string;
+    moreButton: string;
+    downloadTranscript: string;
+    privacy: string;
 }
 
-export type WidgetUpdate = Pick<WidgetConfig, 'branding' | 'welcomeMessage' | 'disclosure' | 'suggestions' | 'placeholder' | 'strings'> & {
+export type WidgetUpdate = Pick<WidgetConfig, 'branding' | 'welcomeMessage' | 'disclosure' | 'suggestions' | 'placeholder' | 'strings' | 'privacyUrl'> & {
     theme?: Omit<ThemeConfig, 'position'>;
 };
 ```

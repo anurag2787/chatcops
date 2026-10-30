@@ -116,12 +116,14 @@ export interface WidgetConfig {
   waitForConsent?: boolean;
   /** Called by the notice's button, to open the site's own consent banner. Without it the button is left out. */
   onConsentRequest?: () => void;
+  /** A link in the header menu to your site's privacy policy (https: or http: only). */
+  privacyUrl?: string;
 }
 
 /** What `update()` can change on a running chat. */
 export type WidgetUpdate = Pick<
   WidgetConfig,
-  'branding' | 'welcomeMessage' | 'disclosure' | 'suggestions' | 'placeholder' | 'strings'
+  'branding' | 'welcomeMessage' | 'disclosure' | 'suggestions' | 'placeholder' | 'strings' | 'privacyUrl'
 > & { theme?: Omit<ThemeConfig, 'position'> };
 
 /** What each widget event passes to its handlers. */
@@ -283,6 +285,8 @@ export class Widget {
       },
       onSend: (text) => this.handleSend(text),
       onClose: () => this.close(),
+      onNewConversation: () => this.newConversation(),
+      onDownloadTranscript: () => this.downloadTranscript(),
     });
 
     if (this.config.disclosure === false) {
@@ -464,6 +468,19 @@ export class Widget {
     this.reset(true);
   }
 
+  /** Saves the visible conversation as a text file. */
+  downloadTranscript(): void {
+    const text = this.messages
+      .filter((m) => m.content?.trim())
+      .map((m) => `${m.role === 'user' ? 'Visitor' : 'Assistant'}: ${m.content}`)
+      .join('\n\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    a.download = 'transcript.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   private reset(forget: boolean, show = true): void {
     // Waiting for consent: there is nothing to reset, and the notice stays up.
     if (!this.consented) return;
@@ -558,7 +575,7 @@ export class Widget {
   }
 
   private panelLabels(): PanelLabels {
-    const { branding, placeholder } = this.config;
+    const { branding, placeholder, privacyUrl } = this.config;
     const l = this.locale;
     return {
       branding: {
@@ -570,6 +587,11 @@ export class Widget {
       footerText: l.poweredBy,
       closeLabel: l.closeButton,
       sendLabel: l.sendButton,
+      moreLabel: l.moreButton,
+      newConversationLabel: l.newConversation,
+      downloadTranscriptLabel: l.downloadTranscript,
+      privacyLabel: l.privacy,
+      privacyUrl,
     };
   }
 

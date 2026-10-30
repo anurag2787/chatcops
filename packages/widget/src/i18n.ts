@@ -36,6 +36,9 @@ export interface WidgetLocaleStrings {
   disclosureLearnMore: string;
   consentNotice: string;
   consentButton: string;
+  moreButton: string;
+  downloadTranscript: string;
+  privacy: string;
 }
 
 const en: WidgetLocaleStrings = {
@@ -75,13 +78,24 @@ const en: WidgetLocaleStrings = {
   disclosureLearnMore: 'Learn more',
   consentNotice: 'Chat is available once you accept functional cookies.',
   consentButton: 'Cookie settings',
+  moreButton: 'More options',
+  downloadTranscript: 'Download transcript',
+  privacy: 'Privacy',
 };
 
 const locales: Record<string, WidgetLocaleStrings> = { en };
 
-export function getWidgetLocale(code: string, overrides?: Partial<WidgetLocaleStrings>): WidgetLocaleStrings {
+export function getWidgetLocale(
+  code: string,
+  overrides?: Partial<WidgetLocaleStrings> & { moreOptions?: string }
+): WidgetLocaleStrings {
   const base = locales[code] ?? en;
-  return overrides ? { ...base, ...overrides } : base;
+  if (!overrides) return base;
+  const merged = { ...base, ...overrides };
+  if (overrides.moreOptions && !overrides.moreButton) {
+    merged.moreButton = overrides.moreOptions;
+  }
+  return merged;
 }
 
 /** Adds or replaces a language. Strings it leaves out stay in English. */
