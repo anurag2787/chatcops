@@ -12,9 +12,17 @@ export const HOST_ID = 'chatcops-root';
 export interface ShadowOptions {
   dir?: 'ltr' | 'rtl' | 'auto';
   locale?: string;
+  nonce?: string;
 }
 
 const RTL_LANGUAGES = new Set(['ar', 'he', 'fa', 'ur']);
+
+/** Marks a registered language as right-to-left, or left-to-right. */
+export function setLanguageDirection(code: string, dir: 'ltr' | 'rtl'): void {
+  const language = code.toLowerCase().split(/[-_]/)[0];
+  if (dir === 'rtl') RTL_LANGUAGES.add(language);
+  else RTL_LANGUAGES.delete(language);
+}
 
 export function resolveDirection(configured: ShadowOptions['dir'], locale?: string): 'ltr' | 'rtl' | 'auto' {
   if (configured) return configured;
@@ -39,6 +47,7 @@ export function createShadowRoot(container?: HTMLElement, options: ShadowOptions
   const shadow = host.attachShadow({ mode: 'open' });
 
   const style = document.createElement('style');
+  if (options.nonce) style.nonce = options.nonce;
   style.textContent = launcherStyles + widgetStyles;
   shadow.appendChild(style);
 

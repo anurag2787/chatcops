@@ -27,7 +27,9 @@ const files = {
   '/full.html': ['fixtures/full.html', 'text/html'],
   '/theme.html': ['fixtures/theme.html', 'text/html'],
   '/prechat.html': ['fixtures/prechat.html', 'text/html'],
+  '/consent.html': ['fixtures/consent.html', 'text/html'],
   '/locale.html': ['fixtures/locale.html', 'text/html'],
+  '/csp.html': ['fixtures/csp.html', 'text/html'],
   '/locales/zz.js': ['fixtures/locales/zz.js', 'text/javascript'],
 };
 
@@ -60,6 +62,8 @@ const SLOW_TOOL_MS = 4000;
  * - "cut off": some text, then nothing (the bridge below ends the response)
  * - "slow tool": calls `slow_lookup`, then answers once it returns
  * - "long reply": about 4,000 words of markdown in small pieces, for the render cost test
+ * - "still streaming": some text, then nothing for a minute, with the response open
+ * - "with sources": a reply that cites the pricing page, found by the knowledge source below
  * - anything else: a normal streamed reply
  */
 /**
@@ -121,10 +125,16 @@ const provider = {
       return;
     }
 
-    const words = /slow tool/i.test(askedText) ? ['Found', ' it.'] : /fail midway|cut off/i.test(askedText) ? REPLY.slice(0, 3) : REPLY;
+    const words = /slow tool/i.test(askedText)
+      ? ['Found', ' it.']
+      : /with sources/i.test(askedText)
+        ? ['Plans start', ' at $19', ' a month [1].']
+        : /fail midway|cut off|still streaming/i.test(askedText)
+          ? REPLY.slice(0, 3)
+          : REPLY;
     yield* text(words);
     if (/fail midway/i.test(askedText)) throw new Error('The e2e provider failed on purpose.');
-    if (/cut off/i.test(askedText)) await sleep(60_000, signal);
+    if (/cut off|still streaming/i.test(askedText)) await sleep(60_000, signal);
     yield {
       type: 'finish',
       reason: 'stop',
@@ -144,13 +154,32 @@ const slowLookup = {
   },
 };
 
+/** Finds the pricing page for "with sources", and nothing otherwise. */
+const pricingPage = {
+  type: 'e2e',
+  async getContext() {
+    return '';
+  },
+  async retrieve({ text }) {
+    if (!/with sources/i.test(text)) return [];
+    return [{
+      id: 'pricing#0',
+      text: 'Plans start at $19 a month.',
+      score: 1,
+      source: { id: 'pricing', url: 'https://example.com/pricing', title: 'Pricing' },
+    }];
+  },
+};
+
 function chatEndpoint(overrides = {}) {
   const config = {
     provider,
     systemPrompt: 'e2e',
+    knowledge: [pricingPage],
     tools: [slowLookup],
     toolTimeoutMs: 30_000,
     budgets: false,
+    allowAnonymous: true,
     ...overrides,
   };
   const handler = createChatHandler(config);
@@ -161,7 +190,13 @@ function chatEndpoint(overrides = {}) {
 const endpoints = {
   '/api/chat': chatEndpoint(),
   // Session tokens on, for the session spec.
-  '/api/secure-chat': chatEndpoint({ sessionSecrets: ['an-e2e-session-secret-of-32-bytes-or-more'] }),
+  '/api/secure-chat': chatEndpoint({ sessionSecrets: ['an-e2e-session-secret-of-32-bytes-or-more'], allowAnonymous: false }),
+  // Signed-in visitors: the userToken spec signs a token with this secret.
+  '/api/identity-chat': chatEndpoint({
+    sessionSecrets: ['an-e2e-session-secret-of-32-bytes-or-more'],
+    identity: { secret: 'an-e2e-identity-secret-of-32-bytes-or-more' },
+    allowAnonymous: false,
+  }),
 };
 
 /** Runs a Fetch API handler for a Node request. */
@@ -246,7 +281,11 @@ const server = createServer(async (req, res) => {
 
     const file = files[url.pathname];
     if (file) {
-      res.writeHead(200, { 'Content-Type': file[1] });
+      const headers = { 'Content-Type': file[1] };
+      if (url.pathname === '/csp.html') {
+        headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'nonce-chatcops-e2e'; style-src 'nonce-chatcops-e2e'; connect-src 'self'; img-src 'self' data:";
+      }
+      res.writeHead(200, headers);
       let content = await readFile(join(here, file[0]), 'utf8');
       content = content.replaceAll('__E2E_API_PORT__', String(apiPort));
       return res.end(content);

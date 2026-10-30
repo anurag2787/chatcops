@@ -51,6 +51,7 @@ export async function runFixtures(
     while (next < jobs.length) {
       const index = next++;
       const { file, path, test } = jobs[index];
+      const started = performance.now();
       results[index] = await runTest(file, test, options.repeat, (run) => {
         const once = () => runOnce(server, { file, path, test, run }, options);
         if (!options.cassettes) return once();
@@ -62,6 +63,7 @@ export async function runFixtures(
           return value;
         });
       });
+      results[index].durationMs = performance.now() - started;
       options.onResult?.(results[index]);
     }
   };
@@ -92,7 +94,8 @@ async function runOnce(
   const { spend } = options;
   const context = { fixture: path, ...(options.judge ? { judge: options.judge } : {}) };
   // Usage on `finish` is what usage assertions read.
-  const handler = createChatHandler({ ...server, exposeUsage: true, storage: memoryStorage(), tools: withMocks(server.tools ?? [], test.mocks?.tools) });
+  // In process, so there's no browser to get session tokens for: requests go straight to the handler.
+  const handler = createChatHandler({ ...server, allowAnonymous: true, exposeUsage: true, storage: memoryStorage(), tools: withMocks(server.tools ?? [], test.mocks?.tools) });
   const conversationId = `eval-${randomUUID()}`;
   const conversation: TurnResult[] = [];
 
@@ -141,17 +144,24 @@ export async function sendTurn(handler: ReturnType<typeof createChatHandler>, bo
     turn.latencyMs = performance.now() - started;
     return turn;
   }
-  for await (const part of start.parts as AsyncIterable<WirePart>) {
-    if (part.type === 'text-delta') turn.text += part.delta;
-    else if (part.type === 'tool-call') turn.toolCalls.push({ name: part.toolName, input: part.input });
-    else if (part.type === 'source') turn.sources.push({ url: part.url, ...(part.title ? { title: part.title } : {}) });
-    else if (part.type === 'lead-captured') turn.leads.push(part.lead as Record<string, unknown>);
-    else if (part.type === 'error') turn.error = part.code;
-    else if (part.type === 'finish') {
-      turn.finishReason = part.reason;
-      if (part.usage) turn.usage = { inputTokens: part.usage.inputTokens, outputTokens: part.usage.outputTokens };
-      turn.latencyMs = performance.now() - started;
+  try {
+    for await (const part of start.parts as AsyncIterable<WirePart>) {
+      if (part.type === 'text-delta') turn.text += part.delta;
+      else if (part.type === 'tool-call') turn.toolCalls.push({ name: part.toolName, input: part.input });
+      else if (part.type === 'source') turn.sources.push({ url: part.url, ...(part.title ? { title: part.title } : {}) });
+      else if (part.type === 'lead-captured') turn.leads.push(part.lead as Record<string, unknown>);
+      else if (part.type === 'error') turn.error = part.code;
+      else if (part.type === 'finish') {
+        turn.finishReason = part.reason;
+        if (part.usage) turn.usage = { inputTokens: part.usage.inputTokens, outputTokens: part.usage.outputTokens };
+        turn.latencyMs = performance.now() - started;
+      }
     }
+  } catch (error) {
+    // The server's HTTP layer turns this into an internal_error part; in
+    // process it arrives as a throw, such as a knowledge source that failed.
+    // It fails this test instead of stopping the whole run.
+    turn.error = `internal_error: ${error instanceof Error ? error.message : String(error)}`;
   }
   if (!turn.latencyMs) turn.latencyMs = performance.now() - started;
   return turn;

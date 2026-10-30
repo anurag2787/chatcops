@@ -5,6 +5,9 @@ on:
     branches: [dev]
   pull_request:
     branches: [dev, production]
+  # The Update screenshots workflow starts this on the branch it committed to,
+  # since its own pushes don't trigger workflows.
+  workflow_dispatch:
 
 jobs:
   typecheck-test-build:
@@ -89,6 +92,11 @@ jobs:
       - name: Package checks
         run: pnpm publint
 
+      # api/*.api.md is each package's public types. A change to them has to
+      # come with the updated snapshot, so it's seen in review.
+      - name: Public API snapshot
+        run: pnpm api:check
+
       # Gzip budgets for the widget bundles are in .size-limit.json.
       - name: Widget size budget
         run: pnpm size
@@ -106,6 +114,16 @@ jobs:
       # `npm run evals:record` in website/.
       - name: Docs bot evals
         run: pnpm --filter @chatcops/website evals
+
+      # 50 questions, each with the page that answers it. Passes when at
+      # least 85% of the replayed answers cite that page.
+      - name: Docs bot citations
+        run: pnpm --filter @chatcops/website evals:citations
+
+      # Warns, without failing, when the docs pages changed since the docs
+      # bot's index (website/public/docs-index) was built.
+      - name: Docs bot index
+        run: pnpm --filter @chatcops/website docs-index:check
 
   changeset:
     if: github.event_name == 'pull_request' && github.base_ref == 'dev'

@@ -8,6 +8,7 @@ import type { ChatCopsServerConfig } from '../src/config.js';
 
 function config(storage: ChatCopsStorage, overrides: Partial<ChatCopsServerConfig> = {}): ChatCopsServerConfig {
   return {
+    allowAnonymous: true,
     provider: scriptedProvider(Array.from({ length: 5 }, () => textStep('Hello'))),
     systemPrompt: 'Test',
     budgets: false,
@@ -44,9 +45,9 @@ describe('analytics on the storage event sink', () => {
     const written = await storage.events?.query?.({ from: now - DAY, to: now + 1 });
     expect(written).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: 'conversation:started', count: 2 }),
-        expect.objectContaining({ type: 'message:sent', count: 2 }),
-        expect.objectContaining({ type: 'message:received', count: 2 }),
+        expect.objectContaining({ type: 'conversation.started', count: 2 }),
+        expect.objectContaining({ type: 'message.sent', count: 2 }),
+        expect.objectContaining({ type: 'message.received', count: 2 }),
       ])
     );
 
@@ -72,7 +73,7 @@ describe('analytics on the storage event sink', () => {
     await chat(handler, 'c1');
 
     expect(write).toHaveBeenCalled();
-    expect(write.mock.calls.flatMap(([batch]) => batch.map((event) => event.type))).toEqual(['conversation:started', 'message:sent', 'message:received']);
+    expect(write.mock.calls.flatMap(([batch]) => batch.map((event) => event.type))).toEqual(['conversation.started', 'message.sent', 'message.received']);
     expect(await handler.analyticsStats()).toMatchObject({ totalConversations: 1 });
   });
 

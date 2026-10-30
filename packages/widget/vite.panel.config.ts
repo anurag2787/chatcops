@@ -1,6 +1,7 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import { resolve } from 'node:path';
+import { MANGLED_PROPERTIES } from './mangle';
 
 // One translation per file in src/locales (de.ts, pt.ts, ...), each built to
 // dist/locales/<code>.js for the loader to fetch next to the panel.
@@ -16,7 +17,10 @@ const locales = existsSync(localeDir)
 // The chat panel as an ES module (chatcops.panel.js), loaded by the loader,
 // plus the chunks it loads itself (the pre-chat form) in dist/chunks/.
 // Built as an app entry rather than a library so it's fully minified.
+const { version } = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')) as { version: string };
+
 export default defineConfig({
+  define: { __CHATCOPS_VERSION__: JSON.stringify(version) },
   build: {
     emptyOutDir: false,
     minify: 'terser',
@@ -24,7 +28,7 @@ export default defineConfig({
       compress: { passes: 2 },
       mangle: {
         properties: {
-          regex: /^(?:mounted|fab|panel|bubble|preChatFormEl|namespace|hydrated|isStreaming|destroyed|abortController|retryRequests|eventHandlers|containerEl|autoOpenTimer|unreadReplies|savedOverflow|shadow|unreadLabel|openLabel|closeLabel|badge|el|inline|messagesContainer|isVisible|typingEl|suggestionsEl|area|textarea|sendBtn|onSend|timerId)$/,
+          regex: MANGLED_PROPERTIES,
         },
       },
     },

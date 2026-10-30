@@ -34,6 +34,8 @@ export interface WidgetLocaleStrings {
   sourcesLabel: string;
   disclosure: string;
   disclosureLearnMore: string;
+  consentNotice: string;
+  consentButton: string;
 }
 
 const en: WidgetLocaleStrings = {
@@ -71,6 +73,8 @@ const en: WidgetLocaleStrings = {
   sourcesLabel: 'Sources',
   disclosure: "You're chatting with an AI assistant. It can make mistakes.",
   disclosureLearnMore: 'Learn more',
+  consentNotice: 'Chat is available once you accept functional cookies.',
+  consentButton: 'Cookie settings',
 };
 
 const locales: Record<string, WidgetLocaleStrings> = { en };
@@ -80,6 +84,7 @@ export function getWidgetLocale(code: string, overrides?: Partial<WidgetLocaleSt
   return overrides ? { ...base, ...overrides } : base;
 }
 
-export function registerWidgetLocale(code: string, strings: WidgetLocaleStrings): void {
-  locales[code] = strings;
+/** Adds or replaces a language. Strings it leaves out stay in English. */
+export function registerWidgetLocale(code: string, strings: Partial<WidgetLocaleStrings>): void {
+  locales[code] = { ...en, ...strings };
 }

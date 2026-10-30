@@ -19,9 +19,6 @@ vi.mock('@chatcops/core', async (importOriginal) => {
       async *chat() {
         yield 'Hello';
       },
-      async chatSync() {
-        return 'Hello';
-      },
     }),
   };
 });
@@ -129,9 +126,10 @@ describe('express analytics sharing', () => {
     }));
 
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
-      cors: '*',
+      allowedOrigins: ['*'],
     };
     const middleware = chatcopsMiddleware(config);
     const { fake, res } = createResponse();
@@ -164,6 +162,7 @@ describe('express analytics sharing', () => {
     }));
 
     const middleware = chatcopsMiddleware({
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
     });
@@ -197,6 +196,7 @@ describe('express analytics sharing', () => {
     }));
 
     const middleware = chatcopsMiddleware({
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
     });
@@ -213,9 +213,10 @@ describe('express analytics sharing', () => {
 
   it('returns 204 with CORS headers for OPTIONS requests', async () => {
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
-      cors: '*',
+      allowedOrigins: ['*'],
     };
     const middleware = chatcopsMiddleware(config);
     const { fake, res } = createResponse();
@@ -239,9 +240,10 @@ describe('express analytics sharing', () => {
 
   it('returns 405 JSON for GET requests', async () => {
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
-      cors: '*',
+      allowedOrigins: ['*'],
     };
     const middleware = chatcopsMiddleware(config);
     const { fake, res } = createResponse();
@@ -254,6 +256,7 @@ describe('express analytics sharing', () => {
 
     expect(fake.statusCode).toBe(405);
     expect(fake.headers['Access-Control-Allow-Origin']).toBe('*');
+    expect(fake.headers.Allow).toBe('POST, OPTIONS');
     expect(fake.body).toEqual({ error: 'Method not allowed' });
     expect(fake.chunks).toEqual([]);
     expect(fake.ended).toBe(false);
@@ -261,6 +264,7 @@ describe('express analytics sharing', () => {
 
   it('returns Access-Control-Allow-Origin: * for 405 when cors is not configured', async () => {
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
     };
@@ -282,9 +286,10 @@ describe('express analytics sharing', () => {
 
   it('returns custom Access-Control-Allow-Origin for 405 when cors is configured', async () => {
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
-      cors: 'https://example.com',
+      allowedOrigins: ['https://example.com'],
     };
     const middleware = chatcopsMiddleware(config);
     const { fake, res } = createResponse();
@@ -304,9 +309,10 @@ describe('express analytics sharing', () => {
 
   it('streams chunks as SSE data, writes DONE, and ends the response', async () => {
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
-      cors: '*',
+      allowedOrigins: ['*'],
     };
     const middleware = chatcopsMiddleware(config);
     const { fake, res } = createResponse();
@@ -334,9 +340,10 @@ describe('express analytics sharing', () => {
 
   it('reports middleware traffic through chatcopsAnalyticsHandler', async () => {
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
-      cors: '*',
+      allowedOrigins: ['*'],
       analytics: true,
     };
     vi.mocked(createChatHandler).mockClear();
@@ -365,6 +372,7 @@ describe('express analytics sharing', () => {
   it('warns once across several requests when analyticsToken is not configured', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
       analytics: true,
@@ -388,6 +396,7 @@ describe('express analytics sharing', () => {
   it('requires a bearer token when analyticsToken is configured', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const config: ChatCopsServerConfig = {
+      allowAnonymous: true,
       provider: { type: 'claude', apiKey: 'test-key' },
       systemPrompt: 'Test',
       analytics: true,

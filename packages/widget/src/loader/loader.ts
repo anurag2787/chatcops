@@ -1,9 +1,10 @@
 import launcherStyles from '../styles/launcher.css?inline';
 import { CHAT_ICON } from '../dom/icons.js';
-import { HOST_ID, nextHostId, resolveDirection } from '../dom/shadow.js';
+import { HOST_ID, nextHostId, resolveDirection, setLanguageDirection } from '../dom/shadow.js';
 import { applyTheme } from '../theme.js';
 import type { WidgetLocaleStrings } from '../i18n.js';
-import type { Widget, WidgetConfig, WidgetEventHandler, WidgetEventType } from '../widget.js';
+import type { Widget, WidgetConfig, WidgetEventHandler, WidgetEventType, WidgetUpdate } from '../widget.js';
+import { VERSION } from '../version.js';
 
 export interface PanelModule {
   Widget: typeof Widget;
@@ -17,9 +18,32 @@ export interface ChatCopsLoader {
   init(config: WidgetConfig): void;
   open(): void;
   close(): void;
+  toggle(): void;
   destroy(): void;
   on<E extends WidgetEventType>(event: E, handler: WidgetEventHandler<E>): () => void;
   off<E extends WidgetEventType>(event: E, handler: WidgetEventHandler<E>): void;
+  /** Sends `text` as the visitor, loading and opening the chat first (unless `open: false`). */
+  sendMessage(text: string, options?: { open?: boolean }): Promise<void>;
+  /** A fresh conversation: new id, the log back to the welcome message. */
+  newConversation(): void;
+  /** A fresh conversation, and the saved transcript and pre-chat answers removed from this browser. */
+  clear(): void;
+  /** Adds or replaces a language for `locale`: its strings (English for any left out), and `dir`. */
+  registerLocale(code: string, strings: Partial<WidgetLocaleStrings>, options?: { dir?: 'ltr' | 'rtl' }): void;
+  /** The signed-in visitor (token, name, email). Another user, or `null`, clears the chat. Kept until the chat loads. */
+  setUser(user: { name?: string; email?: string; token?: string } | null): void;
+  /** Details the bot should know for the next messages. `null` removes them. Kept until the chat loads. */
+  setContext(data: Record<string, string> | null): void;
+  /** Changes the theme, branding or wording of the chat. What you leave out stays as it is. Kept until the chat loads. */
+  update(changes: WidgetUpdate): void;
+  /**
+   * Tells the chat whether the visitor accepted functional cookies. Until `true`, a chat with
+   * `waitForConsent` shows a notice and never touches storage or the API. `false` closes the
+   * chat and removes what it saved. Works before `init()` and before the chat loads.
+   */
+  setConsent(consent: boolean): void;
+  /** The widget's version. */
+  readonly version: string;
 }
 
 const DEFAULT_BUBBLE_DELAY = 3000;
@@ -79,11 +103,24 @@ export function createLoader(
   const timers: Array<ReturnType<typeof setTimeout>> = [];
   const handlers = new Map<WidgetEventType, Set<WidgetEventHandler<never>>>();
   const locales = new Map<string, Promise<Partial<WidgetLocaleStrings> | undefined>>();
+  /** Languages the page registered: no file to fetch, and their direction passed to the panel. */
+  const registered = new Map<string, { strings: Partial<WidgetLocaleStrings>; dir?: 'ltr' | 'rtl' }>();
+  // setUser() and setContext() before the chat loads: applied when it does,
+  // so a signed-in page doesn't load the chat early.
+  let user: Parameters<ChatCopsLoader['setUser']>[0] | undefined;
+  let context: Record<string, string> | null | undefined;
+  // setConsent() before the chat loads, or before init(): kept across init() like the user.
+  let consent: boolean | undefined;
+  // update() calls before the chat loads, for this init() only.
+  let updates: WidgetUpdate[] = [];
+  const directionOf = (current: WidgetConfig) => current.dir ?? (current.locale ? registered.get(current.locale)?.dir : undefined);
 
   /** The translated strings for a config, loaded once per locale. */
   function strings(current: WidgetConfig): Promise<Partial<WidgetLocaleStrings> | undefined> {
     const code = current.locale;
     if (!code) return Promise.resolve(undefined);
+    const own = registered.get(code);
+    if (own) return Promise.resolve(own.strings);
     let found = locales.get(code);
     if (!found) {
       found = Promise.resolve(loadLocale(code)).then(
@@ -115,6 +152,7 @@ export function createLoader(
           ...current,
           // The site's own strings win over the translation.
           strings: translated ? { ...translated, ...current.strings } : current.strings,
+          ...(directionOf(current) ? { dir: directionOf(current) } : {}),
           autoOpen: undefined,
           ...overrides,
         });
@@ -124,7 +162,12 @@ export function createLoader(
         // Swapped in one task, so the page never paints without a button.
         launcher?.remove();
         launcher = button = undefined;
+        if (consent !== undefined) next.setConsent(consent);
         next.init();
+        if (user !== undefined) next.setUser(user);
+        if (context !== undefined) next.setContext(context);
+        for (const changes of updates) next.update(changes);
+        updates = [];
         widget = next;
         return next;
       },
@@ -147,10 +190,11 @@ export function createLoader(
     launcher = document.createElement('div');
     launcher.id = nextHostId();
     launcher.className = HOST_ID;
-    launcher.dir = resolveDirection(current.dir, current.locale);
+    launcher.dir = resolveDirection(directionOf(current), current.locale);
     document.body.appendChild(launcher);
     const shadow = launcher.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
+    if (current.nonce) style.nonce = current.nonce;
     style.textContent = launcherStyles;
     shadow.appendChild(style);
     if (current.theme) applyTheme(shadow, current.theme);
@@ -201,6 +245,57 @@ export function createLoader(
       widget?.close();
     },
 
+    toggle() {
+      if (widget) widget.toggle();
+      else api.open();
+    },
+
+    sendMessage(text, options) {
+      return mount().then((ready) => ready?.sendMessage(text, options));
+    },
+
+    newConversation() {
+      void mount().then((ready) => ready?.newConversation());
+    },
+
+    clear() {
+      void mount().then((ready) => ready?.clear());
+    },
+
+    registerLocale(code, strings, options) {
+      registered.set(code, { strings, ...(options?.dir ? { dir: options.dir } : {}) });
+      if (options?.dir) setLanguageDirection(code, options.dir);
+    },
+
+    setUser(next) {
+      user = next;
+      widget?.setUser(next);
+    },
+
+    setContext(next) {
+      context = next;
+      widget?.setContext(next);
+    },
+
+    setConsent(next) {
+      consent = next;
+      widget?.setConsent(next);
+    },
+
+    update(changes) {
+      if (widget) {
+        widget.update(changes);
+        return;
+      }
+      updates.push(changes);
+      const shadow = launcher?.shadowRoot;
+      // The whole theme so far: a partial one would drop the mode it doesn't name.
+      if (changes.theme && shadow) applyTheme(shadow, Object.assign({}, config?.theme, ...updates.map((u) => u.theme)));
+      if (changes.strings?.openChat) button?.setAttribute('aria-label', changes.strings.openChat);
+    },
+
+    version: VERSION,
+
     destroy() {
       for (const timer of timers.splice(0)) clearTimeout(timer);
       launcher?.remove();
@@ -209,6 +304,7 @@ export function createLoader(
       widget = undefined;
       loading = undefined;
       config = undefined;
+      updates = [];
     },
 
     on(event, handler) {

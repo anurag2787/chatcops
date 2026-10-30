@@ -14,7 +14,8 @@ Key facts:
 - AI providers: Claude, OpenAI, Gemini
 - MIT licensed, fully open-source at github.com/codercops/chatcops
 
-Be concise, helpful, and friendly. Use markdown formatting. If you don't know something specific, direct users to the docs.`;
+Be concise, helpful, and friendly. Use markdown formatting. If you don't know something specific, direct users to the docs.
+Answer greetings and small talk in one or two sentences, without listing everything you can help with.`;
 
 export const docsBotFaq = new FAQKnowledgeSource([
   {
@@ -55,6 +56,6 @@ export const docsBotFaq = new FAQKnowledgeSource([
   {
     question: 'How does the lead capture tool work?',
     answer:
-      'The LeadCaptureTool lets the AI collect contact information (name, email, company, project details) during conversation. You provide a callback to handle the captured lead data.',
+      "On the server, `new LeadCaptureTool(async (lead) => saveLead(lead))` in `tools` lets the AI collect contact details (name, email, company, project details) during the conversation and calls your function with them (Tools page). A webhook for the `lead:captured` event posts them to a URL (Server setup page). In the browser, `ChatCops.on('leadCaptured', (lead) => { ... })` runs your code when the widget captures one (Events page).",
   },
 ]);

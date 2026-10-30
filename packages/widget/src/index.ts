@@ -1,22 +1,35 @@
 import {
   Widget,
   type WidgetConfig,
+  type WidgetUpdate,
   type WidgetEventType,
   type WidgetEventHandler,
 } from './widget.js';
 import { configFromScript } from './script-config.js';
+import { setLanguageDirection } from './dom/shadow.js';
+import { registerWidgetLocale, type WidgetLocaleStrings } from './i18n.js';
+import { VERSION } from './version.js';
 
 export {
   Widget,
   type WidgetConfig,
+  type WidgetUpdate,
+  type PreChatField,
+  type PreChatFormConfig,
   type WidgetEvents,
   type WidgetEventType,
   type WidgetEventHandler,
 } from './widget.js';
-export type { MessageData } from './dom/messages.js';
+export type { MessageData, MessageErrorType, MessageStatus } from './dom/messages.js';
+export type { ThemeConfig, ThemeMode } from './theme.js';
+export type { Persistence } from './storage.js';
+export type { UserToken } from './api/client.js';
+export type { WidgetLocaleStrings } from './i18n.js';
 export { parseAutoOpen } from './script-config.js';
 
 let instance: Widget | null = null;
+// Kept without an instance, so `setConsent()` can come before `init()`; like the loader's, it outlives `destroy()`.
+let consent: boolean | undefined;
 const persistentHandlers = new Map<WidgetEventType, Set<WidgetEventHandler<never>>>();
 
 const ChatCops = {
@@ -30,6 +43,7 @@ const ChatCops = {
         instance.on(event, handler as WidgetEventHandler);
       }
     }
+    if (consent !== undefined) instance.setConsent(consent);
     instance.init();
     return instance;
   },
@@ -41,6 +55,65 @@ const ChatCops = {
   close(): void {
     instance?.close();
   },
+
+  toggle(): void {
+    instance?.toggle();
+  },
+
+  /** Sends `text` as the visitor (opening the chat unless `open: false`); resolves when the reply is done. */
+  sendMessage(text: string, options?: { open?: boolean }): Promise<void> {
+    return instance?.sendMessage(text, options) ?? Promise.resolve();
+  },
+
+  /** A fresh conversation: new id, the log back to the welcome message. */
+  newConversation(): void {
+    instance?.newConversation();
+  },
+
+  /** A fresh conversation, and the saved transcript and pre-chat answers removed from this browser. */
+  clear(): void {
+    instance?.clear();
+  },
+
+  /**
+   * Adds a language, or replaces one: its strings, with English for any it
+   * leaves out, and `dir: 'rtl'` for right-to-left. Use the code as `locale`.
+   */
+  registerLocale(code: string, strings: Partial<WidgetLocaleStrings>, options?: { dir?: 'ltr' | 'rtl' }): void {
+    registerWidgetLocale(code, strings);
+    if (options?.dir) setLanguageDirection(code, options.dir);
+  },
+
+  /**
+   * The signed-in visitor: `token` for the server, `name` and `email` as
+   * visitor details. Another user, or `null` to sign out, clears the chat.
+   */
+  setUser(user: { name?: string; email?: string; token?: string } | null): void {
+    instance?.setUser(user);
+  },
+
+  /** Details the bot should know for the next messages, such as `{ plan: 'Team' }`. `null` removes them. */
+  setContext(data: Record<string, string> | null): void {
+    instance?.setContext(data);
+  },
+
+  /**
+   * Whether the visitor accepted functional cookies, for a chat with `waitForConsent`. `true` shows the chat;
+   * `false` closes it and removes what it saved in this browser. May come before `init()`; the last call wins.
+   * While consent is missing `sendMessage()` resolves without sending, so don't wait on a reply.
+   */
+  setConsent(value: boolean): void {
+    consent = value;
+    instance?.setConsent(value);
+  },
+
+  /** Changes the theme, branding or wording of the running chat. What you leave out stays as it is. */
+  update(changes: WidgetUpdate): void {
+    instance?.update(changes);
+  },
+
+  /** The widget's version. */
+  version: VERSION,
 
   destroy(): void {
     instance?.destroy();
