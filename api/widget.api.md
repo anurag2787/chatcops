@@ -186,6 +186,7 @@ export interface WidgetLocaleStrings {
     welcomeMessage: string;
     inputPlaceholder: string;
     sendButton: string;
+    stopButton: string;
     closeButton: string;
     openChat: string;
     defaultName: string;

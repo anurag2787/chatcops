@@ -31,6 +31,7 @@ export interface PanelOptions {
   footerText: string;
   closeLabel: string;
   sendLabel: string;
+  stopLabel: string;
   moreLabel?: string;
   newConversationLabel?: string;
   downloadTranscriptLabel?: string;
@@ -38,6 +39,7 @@ export interface PanelOptions {
   privacyUrl?: string;
   messageActions?: MessageActions;
   onSend: (text: string) => void;
+  onStop: () => void;
   onClose: () => void;
   onNewConversation?: () => void;
   onDownloadTranscript?: () => void;
@@ -51,6 +53,7 @@ export type PanelLabels = Pick<
   | 'footerText'
   | 'closeLabel'
   | 'sendLabel'
+  | 'stopLabel'
   | 'moreLabel'
   | 'newConversationLabel'
   | 'downloadTranscriptLabel'
@@ -146,7 +149,9 @@ export class Panel {
     this.input = new Input(this.el, {
       placeholder: options.placeholder,
       sendLabel: options.sendLabel,
+      stopLabel: options.stopLabel,
       onSend: options.onSend,
+      onStop: options.onStop,
     });
 
     // Footer
@@ -171,7 +176,7 @@ export class Panel {
       privacyLabel: labels.privacyLabel,
       privacyUrl: labels.privacyUrl,
     });
-    this.input.setLabels(labels.placeholder, labels.sendLabel);
+    this.input.setLabels(labels.placeholder, labels.sendLabel, labels.stopLabel);
     this.footer.innerHTML = labels.footerText;
   }
 
