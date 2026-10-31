@@ -99,7 +99,6 @@ export declare class Widget {
     }): Promise<void>;
     newConversation(): void;
     clear(): void;
-    downloadTranscript(): void;
     setUser(user: {
         email?: string;
         name?: string;

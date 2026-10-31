@@ -475,7 +475,7 @@ export class Widget {
   }
 
   /** Saves the visible conversation as a text file. */
-  downloadTranscript(): void {
+  private downloadTranscript(): void {
     const text = this.messages
       .filter((m) => m.content?.trim())
       .map((m) => `${m.role === 'user' ? 'Visitor' : 'Assistant'}: ${m.content}`)
@@ -484,7 +484,7 @@ export class Widget {
     a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     a.download = 'transcript.txt';
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(a.href), 100);
   }
 
   private reset(forget: boolean, show = true): void {

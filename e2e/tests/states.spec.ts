@@ -258,6 +258,7 @@ for (const look of looks) {
       await start(page, look, { privacyUrl: 'https://example.com/privacy' });
       await openChat(page);
       await ask(page, 'First message');
+      await expect(page.locator('.cc-message-assistant').last()).toContainText('Hello from the test server.');
       await expect(page.locator('.cc-message-user')).toHaveCount(1);
 
       const moreBtn = page.locator('.cc-header-more');

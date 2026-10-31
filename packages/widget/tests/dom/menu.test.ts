@@ -170,6 +170,13 @@ describe('Widget menu actions', () => {
     sessionStorage.clear();
   });
 
+  type Internals = {
+    messages: Array<{ id: string; role: string; content: string }>;
+    panel: { addMessage: (m: { id: string; role: string; content: string }) => void };
+    downloadTranscript: () => void;
+  };
+  const internals = (w: Widget) => w as unknown as Internals;
+
   afterEach(() => {
     widget?.destroy();
     widget = undefined;
@@ -183,7 +190,7 @@ describe('Widget menu actions', () => {
     await vi.dynamicImportSettled();
 
     const shadow = document.querySelector('#chatcops-root')?.shadowRoot;
-    const intern = widget as any;
+    const intern = internals(widget);
     intern.messages.push({ id: '1', role: 'user', content: 'Hello' });
     intern.panel.addMessage({ id: '1', role: 'user', content: 'Hello' });
     expect(shadow?.querySelectorAll('.cc-message-user')).toHaveLength(1);
@@ -196,7 +203,7 @@ describe('Widget menu actions', () => {
     newItem.click();
 
     expect(shadow?.querySelectorAll('.cc-message-user')).toHaveLength(0);
-    expect(intern.messages.filter((m: any) => m.role === 'user')).toHaveLength(0);
+    expect(intern.messages.filter((m) => m.role === 'user')).toHaveLength(0);
   });
 
   it('Download transcript creates a .txt file with the right text', async () => {
@@ -219,12 +226,12 @@ describe('Widget menu actions', () => {
     };
 
     try {
-      const intern = widget as any;
+      const intern = internals(widget);
       intern.messages.push(
         { id: '1', role: 'user', content: 'Hello world' },
         { id: '2', role: 'assistant', content: 'Hi there!' }
       );
-      widget.downloadTranscript();
+      intern.downloadTranscript();
 
       expect(downloadedName).toBe('transcript.txt');
       expect(capturedBlob).toBeDefined();

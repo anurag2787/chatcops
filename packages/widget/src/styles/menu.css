@@ -34,8 +34,12 @@
   white-space: nowrap;
 }
 
-.cc-menu-item:hover,
+.cc-menu-item:hover {
+  background: var(--cc-bg-input);
+}
+
 .cc-menu-item:focus-visible {
   background: var(--cc-bg-input);
-  outline: none;
+  outline: 2px solid transparent;
+  box-shadow: var(--cc-focus-ring);
 }

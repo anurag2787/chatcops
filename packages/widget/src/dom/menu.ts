@@ -1,10 +1,10 @@
 import menuStyles from '../styles/menu.css?inline';
 
 export interface HeaderMenuOptions {
-  moreLabel: string;
-  newConversationLabel: string;
-  downloadTranscriptLabel: string;
-  privacyLabel: string;
+  moreLabel?: string;
+  newConversationLabel?: string;
+  downloadTranscriptLabel?: string;
+  privacyLabel?: string;
   privacyUrl?: string;
   onNewConversation?: () => void;
   onDownloadTranscript?: () => void;
@@ -47,7 +47,7 @@ export class HeaderMenu {
     const menu = document.createElement('div');
     menu.className = 'cc-header-menu';
     menu.setAttribute('role', 'menu');
-    menu.setAttribute('aria-label', options.moreLabel);
+    menu.setAttribute('aria-label', options.moreLabel ?? 'More options');
     menu.setAttribute('hidden', '');
     this.el = menu;
 
@@ -93,6 +93,8 @@ export class HeaderMenu {
 
   setButton(button: HTMLButtonElement): void {
     this.btn = button;
+    this.btn.setAttribute('aria-haspopup', 'menu');
+    this.btn.setAttribute('aria-expanded', String(this.isOpen));
   }
 
   get isOpen(): boolean {
@@ -124,7 +126,13 @@ export class HeaderMenu {
   }
 
   private render(): void {
-    const { moreLabel, newConversationLabel, downloadTranscriptLabel, privacyLabel, privacyUrl } = this.options;
+    const {
+      moreLabel = 'More options',
+      newConversationLabel = 'New conversation',
+      downloadTranscriptLabel = 'Download transcript',
+      privacyLabel = 'Privacy',
+      privacyUrl,
+    } = this.options;
     this.el.setAttribute('aria-label', moreLabel);
     const validPrivacyUrl = safePrivacyUrl(privacyUrl);
     this.el.innerHTML =
@@ -140,4 +148,45 @@ export class HeaderMenu {
     div.textContent = text;
     return div.innerHTML;
   }
+}
+
+export function attachMenu(
+  button: HTMLButtonElement,
+  header: HTMLElement,
+  options: HeaderMenuOptions,
+  event?: Event,
+  existingMenu?: HeaderMenu | null
+): HeaderMenu {
+  const menu = existingMenu ?? new HeaderMenu(button, options);
+  menu.setButton(button);
+  if (!header.contains(menu.el)) header.appendChild(menu.el);
+
+  const openWithFocus = (focusLast?: boolean) => menu.open(focusLast);
+
+  button.onclick = () => (menu.isOpen ? menu.close() : openWithFocus());
+  button.onkeydown = (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openWithFocus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      openWithFocus(true);
+    }
+  };
+
+  if (event) {
+    if (event instanceof KeyboardEvent) {
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        openWithFocus(true);
+      } else if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openWithFocus();
+      }
+    } else {
+      openWithFocus();
+    }
+  }
+
+  return menu;
 }

@@ -89,17 +89,9 @@ const en: WidgetLocaleStrings = {
 
 const locales: Record<string, WidgetLocaleStrings> = { en };
 
-export function getWidgetLocale(
-  code: string,
-  overrides?: Partial<WidgetLocaleStrings> & { moreOptions?: string }
-): WidgetLocaleStrings {
+export function getWidgetLocale(code: string, overrides?: Partial<WidgetLocaleStrings>): WidgetLocaleStrings {
   const base = locales[code] ?? en;
-  if (!overrides) return base;
-  const merged = { ...base, ...overrides };
-  if (overrides.moreOptions && !overrides.moreButton) {
-    merged.moreButton = overrides.moreOptions;
-  }
-  return merged;
+  return overrides ? { ...base, ...overrides } : base;
 }
 
 /** Adds or replaces a language. Strings it leaves out stay in English. */
